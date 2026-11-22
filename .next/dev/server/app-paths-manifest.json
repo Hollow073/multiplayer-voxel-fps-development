@@ -1,0 +1,7 @@
+{
+  "/api/net/rooms/route": "app/api/net/rooms/route.js",
+  "/api/net/send/route": "app/api/net/send/route.js",
+  "/api/net/stream/route": "app/api/net/stream/route.js",
+  "/api/stats/route": "app/api/stats/route.js",
+  "/page": "app/page.js"
+}
