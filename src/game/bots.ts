@@ -1,5 +1,6 @@
 import { World, Body, newBody, rayVsEntity } from "./world";
 import { RULES, WEAPON_INDEX } from "./weapons";
+import { grenadeW, GRENADE_INDEX } from "./equipment";
 import type { Ent } from "./types";
 import type { V3 } from "./maps";
 
@@ -104,6 +105,10 @@ export class Bot {
   dashHit = false;
   dashHitIds = new Set<string>();
   acidCd = 0;
+  blindT = 0;
+  inSmoke = false;
+  burnT = 0;
+  burnAcc = 0;
 
   constructor(id: string, name: string, team: number, public kind: string, wpn: string, hpMul = 1, dmgMul = 1) {
     this.cfg = BOT_KINDS[kind] ?? BOT_KINDS.dm;
@@ -126,6 +131,9 @@ export class Bot {
     this.path = [];
     this.target = null;
     this.seenT = 0;
+    this.blindT = 0;
+    this.burnT = 0;
+    this.burnAcc = 0;
     this.sync();
     this.ent.tx = this.ent.x;
     this.ent.ty = this.ent.y;
@@ -170,7 +178,9 @@ export class Bot {
     this.leapCd -= dt;
     this.dashCd -= dt;
     this.acidCd -= dt;
-    const lockRange = cfg.lockRange ?? cfg.range;
+    if (this.blindT > 0) this.blindT = Math.max(0, this.blindT - dt);
+    // 身处烟雾中的角色能见度只有 0.5m
+    const lockRange = this.inSmoke ? 0.5 : (cfg.lockRange ?? cfg.range);
 
     // ── 索敌 ──
     this.scanT -= dt;
@@ -267,8 +277,11 @@ export class Bot {
         }
       }
 
-      // ── 射击 ──
-      if (this.seen && this.seenT > cfg.react * (ctx.diff === 1 ? 1.5 : ctx.diff === 3 ? 0.6 : 1)) {
+      // ── 射击（被闪光致盲时停止开火） ──
+      if (this.blindT > 0) {
+        this.burst = 0;
+        this.pauseT = Math.max(this.pauseT, 0.4);
+      } else if (this.seen && this.seenT > cfg.react * (ctx.diff === 1 ? 1.5 : ctx.diff === 3 ? 0.6 : 1)) {
         if (cfg.melee) {
           if (!(cfg.dash && this.dashT > 0) && dist < Math.max(2.0, cfg.range) && this.meleeCd <= 0) {
             this.meleeCd = 0.8;

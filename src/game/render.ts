@@ -214,6 +214,8 @@ export interface Avatar {
   foreR: THREE.Group;
   weapon: THREE.Group;
   weaponId: string;
+  pack: THREE.Group;
+  packId: string;
   tag: THREE.Sprite | null;
   hpBar: THREE.Mesh | null;
   crouchK: number;
@@ -303,6 +305,8 @@ export function makeAvatar(k: AvatarKind): Avatar {
   const weapon = new THREE.Group();
   weapon.position.copy(HAND_R);
   model.add(weapon);
+  const pack = new THREE.Group();
+  model.add(pack);
   group.scale.setScalar(k.scale);
   const a: Avatar = {
     group,
@@ -319,6 +323,8 @@ export function makeAvatar(k: AvatarKind): Avatar {
     foreR,
     weapon,
     weaponId: "",
+    pack,
+    packId: "",
     tag: null,
     hpBar: null,
     crouchK: 0,
@@ -326,6 +332,29 @@ export function makeAvatar(k: AvatarKind): Avatar {
   };
   poseArms(a, false, 0);
   return a;
+}
+
+// RPG / 重机枪占用背包位：在其他玩家背上显示火箭弹背包 / 弹链背包
+export function setAvatarPack(a: Avatar, heavyId: string) {
+  const kind = heavyId === "rpg" ? "rpg" : heavyId === "hmg" ? "hmg" : "";
+  if (a.packId === kind) return;
+  a.packId = kind;
+  while (a.pack.children.length) a.pack.remove(a.pack.children[0]);
+  if (!kind) return;
+  bx(0.52, 0.56, 0.2, 0, 1.06, 0.27, 0x3a4030, a.pack);
+  bx(0.54, 0.08, 0.22, 0, 1.36, 0.27, 0x262b22, a.pack);
+  if (kind === "rpg") {
+    for (let i = 0; i < 3; i++) {
+      const x = (i - 1) * 0.15;
+      bx(0.11, 0.11, 0.62, x, 1.12, 0.27, 0x5a6b45, a.pack);
+      bx(0.12, 0.12, 0.1, x, 1.12, 0.57, 0xc0392b, a.pack);
+    }
+  } else {
+    for (let i = 0; i < 7; i++) {
+      bx(0.05, 0.09, 0.05, -0.21 + i * 0.07, 0.86, 0.39, 0xc9a227, a.pack);
+    }
+    bx(0.5, 0.08, 0.06, 0, 0.93, 0.39, 0x8a6a18, a.pack);
+  }
 }
 
 export function setAvatarWeapon(a: Avatar, def: WeaponDef) {

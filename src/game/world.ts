@@ -112,15 +112,17 @@ export class World {
     return true;
   }
 
-  moveBody(b: Body, dt: number) {
+  moveBody(b: Body, dt: number, gravity = true) {
     const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
     const h = dt / steps;
-    for (let i = 0; i < steps; i++) this.stepBody(b, h);
+    for (let i = 0; i < steps; i++) this.stepBody(b, h, gravity);
   }
 
-  private stepBody(b: Body, dt: number) {
-    b.vy -= GRAVITY * dt;
-    if (b.vy < -40) b.vy = -40;
+  private stepBody(b: Body, dt: number, gravity = true) {
+    if (gravity) {
+      b.vy -= GRAVITY * dt;
+      if (b.vy < -40) b.vy = -40;
+    }
     const was = b.onGround;
     this.moveH(b, b.vx * dt, 0, was);
     this.moveH(b, 0, b.vz * dt, was);

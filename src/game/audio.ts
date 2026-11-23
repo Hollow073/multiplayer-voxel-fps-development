@@ -69,7 +69,7 @@ function tone(freq: number, dur: number, gain: number, type: OscillatorType = "s
 
 export type Sfx =
   | "rifle" | "smg" | "sniper" | "shotgun" | "pistol" | "lmg" | "heavy" | "rocket"
-  | "boom" | "hit" | "head" | "reload" | "melee" | "hurt" | "heal" | "empty" | "switch" | "kill";
+  | "boom" | "hit" | "head" | "reload" | "melee" | "hurt" | "heal" | "empty" | "switch" | "kill" | "flash";
 
 export function sfx(name: Sfx, vol = 1) {
   if (!ctx) return;
@@ -94,5 +94,6 @@ export function sfx(name: Sfx, vol = 1) {
     case "heal": tone(500, 0.3, 0.2 * v, "sine", 900); break;
     case "empty": tone(300, 0.04, 0.2 * v, "square"); break;
     case "switch": burst(0.06, 3000, 1.5, 0.3 * v, "bandpass"); break;
+    case "flash": tone(2600, 0.5, 0.5 * v, "sine", 240); burst(0.35, 6000, 0.8, 0.5 * v, "highpass"); break;
   }
 }

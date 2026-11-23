@@ -292,7 +292,7 @@ export default function Home() {
             <div className="mt-6 rounded-lg border border-white/15 bg-white/5 p-4">
               <button onClick={() => setShowLoadout((v) => !v)} className="w-full flex items-center justify-between">
                 <h2 className="text-lg font-black tracking-wider">武器配装</h2>
-                <span className="text-xs text-white/60">{showLoadout ? "收起 ▲" : "展开 ▼  一号位 / 二号位 / 三号位"}</span>
+                <span className="text-xs text-white/60">{showLoadout ? "收起 ▲" : "展开 ▼  一号位 / 二号位 / 三号位 / 手雷 / 背包"}</span>
               </button>
               {showLoadout && (
                 <div className="mt-3">

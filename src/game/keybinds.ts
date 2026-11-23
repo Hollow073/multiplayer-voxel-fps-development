@@ -14,6 +14,9 @@ export interface KeyBinds {
   slot1: string;
   slot2: string;
   slot3: string;
+  slot4: string;
+  grenade: string;
+  backpack: string;
 }
 
 export type BindAction = keyof KeyBinds;
@@ -33,6 +36,9 @@ export const DEFAULT_BINDS: KeyBinds = {
   slot1: "Digit1",
   slot2: "Digit2",
   slot3: "Digit3",
+  slot4: "Digit4",
+  grenade: "KeyG",
+  backpack: "KeyE",
 };
 
 export const BIND_META: { key: BindAction; label: string; hint?: string }[] = [
@@ -50,6 +56,9 @@ export const BIND_META: { key: BindAction; label: string; hint?: string }[] = [
   { key: "slot1", label: "一号位武器" },
   { key: "slot2", label: "二号位武器" },
   { key: "slot3", label: "三号位武器" },
+  { key: "slot4", label: "四号位手雷" },
+  { key: "grenade", label: "按住拿雷 / 松手投掷", hint: "按住开始引信计时，久持会自爆" },
+  { key: "backpack", label: "使用背包" },
 ];
 
 const STORAGE_KEY = "bs_binds";

@@ -19,7 +19,9 @@ function helpList(b: KeyBinds): [string, string][] {
     [`${codeLabel(b.sprint)} + ${codeLabel(b.crouch)}`, "滑铲 (消耗 25 体力)"],
     ["左键 / 右键", "开火 / 瞄准"],
     [codeLabel(b.reload), "换弹"],
-    [`${codeLabel(b.slot1)} / ${codeLabel(b.slot2)} / ${codeLabel(b.slot3)}`, "切换武器"],
+    [`${codeLabel(b.slot1)} / ${codeLabel(b.slot2)} / ${codeLabel(b.slot3)} / ${codeLabel(b.slot4)}`, "切换武器 / 手雷"],
+    [codeLabel(b.grenade), "按住拿雷 · 松手投掷"],
+    [codeLabel(b.backpack), "使用背包"],
     [codeLabel(b.heal), "使用回血道具"],
     [codeLabel(b.scoreboard), "计分板"],
     ["Esc", "暂停 / 菜单"],
@@ -86,6 +88,14 @@ export default function GameView({ cfg, onExit, onLoadoutChange }: { cfg: GameCo
   return (
     <div className="fixed inset-0 bg-black select-none overflow-hidden">
       <div ref={wrap} className="absolute inset-0" />
+
+      {/* 状态画面：白屏 / 烟雾（位于 3D 层之上、所有 UI 之下，保证 UI 始终正常） */}
+      {h && h.blind > 0.01 && (
+        <div className="absolute inset-0 pointer-events-none bg-white" style={{ opacity: h.blind }} />
+      )}
+      {h && h.inSmoke && (
+        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(circle at center, rgba(205,214,219,0.18), rgba(185,194,200,0.72) 72%)" }} />
+      )}
 
       {/* 小地图 */}
       <div className="absolute left-3 top-3 pointer-events-none">
@@ -162,7 +172,7 @@ export default function GameView({ cfg, onExit, onLoadoutChange }: { cfg: GameCo
           {lowHp && h.alive && <div className="absolute inset-0 pointer-events-none animate-pulse" style={{ boxShadow: "inset 0 0 120px rgba(255,0,0,0.45)" }} />}
 
           {/* 准星 */}
-          {h.alive && !h.scope && (
+          {h.alive && !h.scope && h.slot !== 3 && (
             <div className="absolute left-1/2 top-1/2 pointer-events-none" style={{ transform: "translate(-50%,-50%)" }}>
               <div className="absolute bg-white/90" style={{ width: 2, height: 2, left: -1, top: -1 }} />
               {[0, 90, 180, 270].map((a) => (
@@ -233,6 +243,15 @@ export default function GameView({ cfg, onExit, onLoadoutChange }: { cfg: GameCo
 
           {/* 右下：武器/弹药 */}
           <div className="absolute right-4 bottom-4 w-72 pointer-events-none font-mono">
+            {!cw && h.grenade.id && h.slot === 3 && (
+              <div className="text-right">
+                <div className="text-white/80 text-sm">{h.grenade.name}</div>
+                <div className="leading-none">
+                  <span className={`text-5xl font-black ${h.grenade.count === 0 ? "text-red-400" : "text-white"}`}>×{h.grenade.count}</span>
+                </div>
+                <div className="text-[10px] text-white/50">按住 {codeLabel(binds.grenade)} 拿雷 · 松手投掷</div>
+              </div>
+            )}
             {cw && (
               <div className="text-right">
                 <div className="text-white/80 text-sm">{cw.name}</div>
@@ -262,8 +281,89 @@ export default function GameView({ cfg, onExit, onLoadoutChange }: { cfg: GameCo
                   <span className="text-[11px]">{w.melee ? "∞" : `${w.mag}/${w.reserve}`}</span>
                 </div>
               ))}
+              <div className={`flex items-center gap-2 px-2 py-1 rounded border ${h.slot === 3 ? "bg-amber-400/20 border-amber-300 text-white" : "bg-black/45 border-white/10 text-white/60"}`}>
+                <span className="w-4 text-center font-black text-amber-300">4</span>
+                <span className="text-xs flex-1 truncate">{h.grenade.name}</span>
+                <span className="text-[11px]">×{h.grenade.count}</span>
+              </div>
+            </div>
+
+            {/* 背包位 */}
+            <div className={`mt-2 px-2 py-1.5 rounded border font-mono ${h.backpack.occupied ? "bg-red-950/40 border-red-400/40" : "bg-black/45 border-cyan-300/25"}`}>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-white/45 w-8">背包</span>
+                <span className="text-xs text-white/90 flex-1 truncate">{h.backpack.name}</span>
+                <span className="text-[10px] text-white/50">[{codeLabel(binds.backpack)}]</span>
+              </div>
+              {h.backpack.kind === "ammo" ? (
+                h.backpack.id === "ammo_rpg" ? (
+                  <div className="mt-1 flex items-center gap-1 text-[11px] text-amber-200">
+                    <span>🚀🚀🚀</span>
+                    <span className="text-white/50">火箭弹库存（不实时显示）</span>
+                  </div>
+                ) : (
+                  <div className="mt-1 flex items-center gap-1">
+                    <span className="flex gap-[2px]">
+                      {Array.from({ length: 12 }).map((_, i) => (
+                        <span key={i} className="inline-block w-[3px] h-2.5 rounded-sm bg-amber-300/80" />
+                      ))}
+                    </span>
+                    <span className="text-[11px] text-white/50">链式弹药（不实时显示）</span>
+                  </div>
+                )
+              ) : h.backpack.kind === "supply" ? (
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className="text-[10px] text-white/50">补给</span>
+                  <span className="flex gap-1">
+                    {Array.from({ length: h.backpack.maxCharges }).map((_, i) => (
+                      <span key={i} className={`inline-block w-3 h-3 rounded-sm border ${i < h.backpack.charges ? "bg-amber-300 border-amber-200" : "border-white/25"}`} />
+                    ))}
+                  </span>
+                  <span className="text-[10px] text-white/60 ml-auto">{h.backpack.charges}/{h.backpack.maxCharges}</span>
+                </div>
+              ) : (
+                <div className="mt-1 flex items-center gap-2">
+                  <div className="h-1.5 flex-1 bg-black/60 rounded-sm overflow-hidden">
+                    <div className="h-full" style={{ width: `${h.backpack.ready ? 100 : Math.max(0, 100 - (h.backpack.cd / 15) * 100)}%`, background: h.backpack.ready ? "#22d3ee" : "#f59e0b" }} />
+                  </div>
+                  <span className="text-[10px] text-white/60 w-20 text-right">{h.backpack.state}</span>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* 燃烧状态 */}
+          {h.burning > 0 && (
+            <div className="absolute left-1/2 bottom-24 -translate-x-1/2 pointer-events-none px-3 py-1 rounded bg-orange-600/40 border border-orange-400 text-orange-100 text-xs font-black">
+              🔥 燃烧 {h.burning.toFixed(1)}s · 每秒 10 点伤害
+            </div>
+          )}
+
+          {/* 烟雾中 */}
+          {h.inSmoke && (
+            <div className="absolute left-1/2 top-16 -translate-x-1/2 pointer-events-none px-3 py-1 rounded bg-slate-400/25 border border-white/40 text-white text-xs font-black">
+              烟雾中 · 能见度 0.5m
+            </div>
+          )}
+
+          {/* 手雷引信 */}
+          {h.grenade.holding && (
+            <div className="absolute left-1/2 bottom-32 -translate-x-1/2 w-64 pointer-events-none">
+              <div className={`text-center text-xs font-black ${h.grenade.fuse < 1 ? "text-red-400 animate-pulse" : "text-amber-300"}`}>
+                引信 {h.grenade.fuse.toFixed(1)}s · 松手投掷
+              </div>
+              <div className="mt-1 h-2 bg-black/70 border border-white/25 rounded-sm overflow-hidden">
+                <div className="h-full" style={{ width: `${Math.max(0, (h.grenade.fuse / h.grenade.maxFuse) * 100)}%`, background: h.grenade.fuse < 1 ? "#ef4444" : "#f59e0b" }} />
+              </div>
+            </div>
+          )}
+
+          {/* 背包提示 */}
+          {h.notice && (
+            <div className="absolute left-1/2 bottom-20 -translate-x-1/2 pointer-events-none px-3 py-1 rounded bg-cyan-500/25 border border-cyan-300/60 text-cyan-100 text-xs font-bold">
+              {h.notice}
+            </div>
+          )}
 
           {/* 横幅 */}
           {h.banner && (
@@ -363,7 +463,7 @@ export default function GameView({ cfg, onExit, onLoadoutChange }: { cfg: GameCo
                   ))}
                 </div>
                 <div className="mt-3 text-xs text-white/50 leading-relaxed">
-                  头部伤害 150%，其余部位 100%。回血道具共 4 次，每次 2 秒内每 0.01 秒恢复 1 点生命（使用时无法开火）。局域网内其他玩家在浏览器输入本机 IP 即可加入。
+                  头部伤害 150%，其余部位 100%。回血道具共 4 次，每次 2 秒内每 0.01 秒恢复 1 点生命（使用时无法开火）。按住 G 拿雷开始引信计时、松手投出，按太久会在手中自爆；E 使用背包。局域网内其他玩家在浏览器输入本机 IP 即可加入。
                 </div>
               </div>
             )}
