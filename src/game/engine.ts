@@ -2,13 +2,19 @@ import * as THREE from "three";
 import { World, newBody, Body, rayVsEntity } from "./world";
 import { buildMap, MapData, V3 } from "./maps";
 import { WEAPONS, WEAPON_BY_ID, WEAPON_INDEX, RULES, WeaponDef, Loadout, sanitizeLoadout, TEAM_COLORS, TEAM_NAMES } from "./weapons";
-import { buildWorldMesh, buildGunModel, makeAvatar, setAvatarWeapon, animateAvatar, makeTag, bx } from "./render";
+import { buildWorldMesh, buildGunModel, makeAvatar, setAvatarWeapon, setAvatarPack, animateAvatar, makeTag, bx } from "./render";
 import { Net, NetMsg } from "./net";
 import { sfx, initAudio, Sfx } from "./audio";
 import { renderMapCanvas } from "./minimap";
 import { Fx } from "./fx";
 import { Bot, BotCtx } from "./bots";
 import { loadBinds, KeyBinds, DEFAULT_BINDS } from "./keybinds";
+import {
+  GRENADES, GRENADE_BY_ID, GRENADE_INDEX, GRENADE_STOCK,
+  resolveBackpack, backpackOccupiedBy, JET_RISE, JET_HOVER, TELEPORT_DIST,
+  grenadeW, grenadeFromW,
+  type GrenadeDef, type BackpackDef,
+} from "./equipment";
 import type { Ent, GameConfig, HudState, FeedItem, BoardRow, WeaponHud } from "./types";
 
 interface WState {
@@ -29,6 +35,38 @@ interface Proj {
   life: number;
   mesh: THREE.Object3D;
   wIdx: number;
+}
+interface NadeProj {
+  id: string;
+  mine: boolean;
+  def: GrenadeDef;
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  fuse: number;
+  mesh: THREE.Object3D;
+}
+interface SmokeZone {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  life: number;
+  max: number;
+  group: THREE.Group;
+  mats: THREE.MeshBasicMaterial[];
+}
+interface FireZone {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  life: number;
+  max: number;
+  burn: number;
+  group: THREE.Group;
+  mats: THREE.MeshBasicMaterial[];
+  tick: number;
+  fxT: number;
 }
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -51,6 +89,17 @@ const HEIGHTS = [1.8, 1.3, 0.55];
 const EYES = [1.65, 1.15, 0.5];
 // 重生后的无敌时间（秒）
 const PROTECT_TIME = 4;
+// 手雷 / 背包参数
+const BURN_TICK = 0.5; // 燃烧状态每 0.5s 结算一次伤害
+const SMOKE_FOG_NEAR = 0.5; // 烟中能见度约 0.5m
+const SMOKE_FOG_FAR = 1.25;
+const SMOKE_COLOR = 0xb9c2c8;
+const NADE_THROW_SPEED = 15;
+
+// 背包效果提示 / 状态文字
+function fmtCd(v: number) {
+  return v > 0.05 ? `${v.toFixed(1)}s` : "就绪";
+}
 
 export class Game {
   hud: HudState;
@@ -128,6 +177,28 @@ export class Game {
     hs: 0,
     speed: 0,
     reloadTotal: 1,
+    // 四号位手雷
+    nadeCount: GRENADE_STOCK,
+    nadeHold: false,
+    nadeFuse: 0,
+    nadeCook: 0,
+    nadeThrow: 0,
+    // 状态效果
+    blind: 0,
+    burn: 0,
+    burnAcc: 0,
+    burnFx: 0,
+    // 背包
+    bpCharges: 0,
+    bpCd: 0,
+    jetActive: false,
+    jetRise: 0,
+    jetHover: 0,
+    jetCd: 0,
+    jetUsed: false,
+    tpCd: 0,
+    notice: "",
+    noticeT: 0,
   };
   private pendingLoadout: Loadout;
   private loadout: Loadout;
@@ -146,10 +217,18 @@ export class Game {
   private vmWeapons: THREE.Group[] = [];
   private vmFlash: THREE.Mesh[] = [];
   private vmBuiltFor: string[] = [];
+  private vmGrenade = new THREE.Group();
+  private vmGrenadeBody: THREE.Mesh | null = null;
+  private vmGrenadeBuiltFor = "";
 
   // 战斗
   private projs: Proj[] = [];
   private projSeq = 0;
+  private nades: NadeProj[] = [];
+  private nadeSeq = 0;
+  private smokes: SmokeZone[] = [];
+  private fires: FireZone[] = [];
+  private smokeVision = false;
   private shake = 0;
   private feedSeq = 0;
   private feed: FeedItem[] = [];
@@ -200,6 +279,9 @@ export class Game {
       hitSeq: 0, hitHead: false, killSeq: 0, dmgFlash: 0, dmgAngle: 0, ads: false, scope: false, spread: 2, feed: [], mode: "tdm", mapName: "",
       teamCount: 2, scores: [0, 0, 0, 0], scoreLimit: 30, myTeam: 0, wave: 0, enemiesLeft: 0, banner: "", bannerT: 0, phase: "play",
       board: [], showBoard: false, roomId: cfg.roomId, players: 1, fps: 0, kills: 0, deaths: 0, headshots: 0, protect: false, protectT: 0, isHost: false,
+      grenade: { id: "", name: "", kind: "", count: 0, maxCount: GRENADE_STOCK, fuse: 0, maxFuse: 1, holding: false },
+      backpack: { id: "", name: "", kind: "", charges: 0, maxCharges: 0, cd: 0, ready: true, occupied: false, ammo: "", state: "" },
+      burning: 0, blind: 0, inSmoke: false, notice: "",
     };
   }
 
@@ -330,6 +412,7 @@ export class Game {
     vs.position.set(1, 2, 1);
     this.vmScene.add(vs);
     this.vmScene.add(this.vmRoot);
+    this.vmRoot.add(this.vmGrenade);
     this.fx = new Fx(this.scene);
     this.cam.rotation.order = "YXZ";
   }
@@ -396,6 +479,15 @@ export class Game {
         this.explodeVisual(d.p[0], d.p[1], d.p[2], d.r);
         break;
       }
+      case "nade":
+        this.spawnNade(d.id, false, GRENADE_BY_ID[d.g] ?? GRENADES[0], new THREE.Vector3(d.p[0], d.p[1], d.p[2]), new THREE.Vector3(d.v[0], d.v[1], d.v[2]), d.fuse);
+        break;
+      case "nadeboom":
+        this.onRemoteNadeBoom(d);
+        break;
+      case "fx":
+        this.onFxEvent(d);
+        break;
       case "game":
         this.game = { sc: d.sc, wave: d.wave, phase: d.phase, en: d.en, st: d.st, win: d.win };
         break;
@@ -559,8 +651,10 @@ export class Game {
         av.group.visible = true;
         av.group.position.set(e.x, e.y, e.z);
         av.group.rotation.y = e.yaw;
-        setAvatarWeapon(av, WEAPONS[e.wpn] ?? WEAPONS[0]);
-        animateAvatar(av, e.phase, e.speed, e.stance === 3 ? 1 : e.stance, dt, 1, (WEAPONS[e.wpn] ?? WEAPONS[0]).cat === "melee");
+        const curDef = WEAPONS[e.wpn] ?? WEAPONS[0];
+        setAvatarWeapon(av, curDef);
+        setAvatarPack(av, curDef.id);
+        animateAvatar(av, e.phase, e.speed, e.stance === 3 ? 1 : e.stance, dt, 1, curDef.cat === "melee");
         // 队友名牌
         if (!e.isBot && e.team === this.team && !av.tag) {
           av.tag = makeTag(e.name, "#" + TEAM_COLORS[e.team % 4].toString(16).padStart(6, "0"));
@@ -597,14 +691,43 @@ export class Game {
       w.reloadT = 0;
     }
     this.p.healCharges = RULES.healUses;
+    this.p.nadeCount = GRENADE_STOCK;
+    this.p.bpCharges = resolveBackpack(this.loadout.heavy, this.loadout.backpack).charges;
+    this.p.bpCd = 0;
+    this.p.jetCd = 0;
+    this.p.jetUsed = false;
+    this.p.jetActive = false;
+    this.p.jetRise = 0;
+    this.p.jetHover = 0;
+    this.p.tpCd = 0;
     this.p.hp = RULES.maxHp;
   }
 
   private applyLoadout() {
-    this.loadout = this.pendingLoadout;
+    this.loadout = sanitizeLoadout(this.pendingLoadout);
     const ids = [this.loadout.primary, this.loadout.secondary, this.loadout.heavy];
     this.p.w = ids.map((i) => this.mkW(i));
     this.buildViewModels(ids);
+    this.buildGrenadeViewModel();
+    const bp = resolveBackpack(this.loadout.heavy, this.loadout.backpack);
+    this.p.bpCharges = bp.charges;
+    this.p.bpCd = 0;
+    this.p.nadeCount = GRENADE_STOCK;
+    this.p.nadeHold = false;
+    this.p.nadeFuse = 0;
+    this.p.nadeCook = 0;
+    this.p.nadeThrow = 0;
+    this.p.jetActive = false;
+    this.p.jetRise = 0;
+    this.p.jetHover = 0;
+    this.p.jetCd = 0;
+    this.p.jetUsed = false;
+    this.p.tpCd = 0;
+    this.p.blind = 0;
+    this.p.burn = 0;
+    this.p.burnAcc = 0;
+    this.p.notice = "";
+    this.p.noticeT = 0;
   }
 
   private buildViewModels(ids: string[]) {
@@ -682,6 +805,11 @@ export class Game {
     p.healCharges = RULES.healUses;
     p.healT = 0;
     p.slot = 0;
+    p.nadeHold = false;
+    p.nadeThrow = 0;
+    p.blind = 0;
+    p.burn = 0;
+    p.burnAcc = 0;
     p.switchT = 0.4;
     p.alive = true;
     p.waiting = false;
@@ -726,12 +854,15 @@ export class Game {
       this.mouseR = false;
       this.keys.clear();
       this.showBoard = false;
+      // 指针解锁时把手中的雷投出去，避免引信状态卡住
+      if (this.p.nadeHold) this.throwGrenade();
     }
   };
 
   private onBlur = () => {
     this.keys.clear();
     this.mouseL = this.mouseR = false;
+    if (this.p.nadeHold) this.throwGrenade();
   };
 
   private onMouseMove = (e: MouseEvent) => {
@@ -768,7 +899,7 @@ export class Game {
     if (!this.locked) return;
     e.preventDefault();
     const d = e.deltaY > 0 ? 1 : -1;
-    this.switchSlot((this.p.slot + d + 3) % 3);
+    this.switchSlot((this.p.slot + d + 4) % 4);
   };
 
   private onKeyDown = (e: KeyboardEvent) => {
@@ -787,6 +918,9 @@ export class Game {
     if (c === b.slot1) this.switchSlot(0);
     else if (c === b.slot2) this.switchSlot(1);
     else if (c === b.slot3) this.switchSlot(2);
+    else if (c === b.slot4) this.switchSlot(3);
+    else if (c === b.grenade) this.beginCook();
+    else if (c === b.backpack) this.useBackpack();
     else if (c === b.reload) this.startReload();
     else if (c === b.heal) this.useHeal();
     else if (c === b.scoreboard) this.showBoard = true;
@@ -804,6 +938,7 @@ export class Game {
   private onKeyUp = (e: KeyboardEvent) => {
     this.keys.delete(e.code);
     if (e.code === this.binds.scoreboard) this.showBoard = false;
+    if (e.code === this.binds.grenade && this.p.nadeHold) this.throwGrenade();
   };
 
   private key(c: string) {
@@ -855,13 +990,15 @@ export class Game {
 
   // ───────────────────────── 武器逻辑 ─────────────────────────
   private cur() {
-    return this.p.w[this.p.slot];
+    return this.p.w[this.p.slot] ?? this.p.w[0];
   }
 
   private switchSlot(s: number) {
     const p = this.p;
-    if (s === p.slot || !p.alive || !p.w[s]) return;
-    p.w[p.slot].reloadT = 0;
+    if (s === p.slot || !p.alive) return;
+    if (p.nadeHold) return; // 引信已开始计时，不能切枪取消
+    if (s < 3 && !p.w[s]) return;
+    if (p.slot < 3) p.w[p.slot].reloadT = 0;
     p.slot = s;
     p.switchT = 0.4;
     p.ads = 0;
@@ -871,6 +1008,7 @@ export class Game {
 
   private startReload() {
     const p = this.p;
+    if (p.slot >= 3 || p.nadeHold) return;
     const w = this.cur();
     if (!w || !p.alive || w.reloadT > 0 || w.def.type === "melee") return;
     if (w.mag >= w.def.mag || w.reserve <= 0 || p.healT > 0 || p.switchT > 0) return;
@@ -881,12 +1019,598 @@ export class Game {
 
   private useHeal() {
     const p = this.p;
-    if (!p.alive || p.healCharges <= 0 || p.healT > 0 || p.hp >= RULES.maxHp) return;
+    if (!p.alive || p.nadeHold || p.healCharges <= 0 || p.healT > 0 || p.hp >= RULES.maxHp) return;
     p.healCharges--;
     p.healT = RULES.healDuration;
     p.healAcc = 0;
-    this.cur().reloadT = 0;
+    if (p.slot < 3) this.cur().reloadT = 0;
     sfx("heal", 0.8);
+  }
+
+  // ───────────────────────── 四号位：手雷 ─────────────────────────
+  private grenadeDef(): GrenadeDef {
+    return GRENADE_BY_ID[this.loadout.grenade] ?? GRENADES[0];
+  }
+
+  private buildGrenadeViewModel() {
+    const def = this.grenadeDef();
+    if (this.vmGrenadeBuiltFor === def.id) return;
+    this.vmGrenadeBuiltFor = def.id;
+    while (this.vmGrenade.children.length) this.vmGrenade.remove(this.vmGrenade.children[0]);
+    const g = new THREE.Group();
+    // 手 / 小臂（第一人称）
+    bx(0.09, 0.09, 0.34, 0.015, -0.1, 0.12, 0xd9a877, g);
+    bx(0.1, 0.1, 0.1, 0.015, -0.1, -0.04, 0xe0b48a, g);
+    const body = new THREE.Mesh(new THREE.IcosahedronGeometry(0.085, 0), new THREE.MeshLambertMaterial({ color: def.color }));
+    body.position.set(0.015, -0.055, -0.1);
+    g.add(body);
+    bx(0.1, 0.03, 0.1, 0.015, -0.012, -0.1, def.accent, g);
+    bx(0.035, 0.055, 0.035, 0.015, 0.03, -0.1, 0x2b2b2b, g);
+    this.vmGrenadeBody = body;
+    this.vmGrenade.add(g);
+  }
+
+  private beginCook() {
+    const p = this.p;
+    if (!p.alive || p.nadeHold || p.switchT > 0) return;
+    if (p.nadeCount <= 0) {
+      this.showNotice("手雷已用完，复活或使用补给背包补充");
+      return;
+    }
+    this.buildGrenadeViewModel();
+    p.nadeHold = true;
+    p.nadeCook = 0;
+    p.nadeThrow = 0;
+    p.nadeFuse = this.grenadeDef().fuse;
+    p.ads = 0;
+    if (p.slot !== 3) {
+      if (p.slot < 3) p.w[p.slot].reloadT = 0;
+      p.slot = 3;
+      p.switchT = 0.2;
+    }
+    sfx("switch", 0.7);
+  }
+
+  private throwGrenade() {
+    const p = this.p;
+    if (!p.nadeHold) return;
+    p.nadeHold = false;
+    if (!p.alive || p.nadeCount <= 0) return;
+    const def = this.grenadeDef();
+    p.nadeCount--;
+    p.nadeThrow = 0.35;
+    const eye = this.eyePos();
+    const { f, u } = this.camBasis();
+    const pos = eye.clone().addScaledVector(f, 0.55).addScaledVector(u, -0.08);
+    const vel = f.clone().multiplyScalar(NADE_THROW_SPEED).addScaledVector(u, 2.4);
+    const nudge = this.nudgeOut(pos.x, pos.y, pos.z, f.x, f.y, f.z, 2);
+    pos.set(nudge[0], nudge[1], nudge[2]);
+    const id = `${this.cfg.pid}-n${this.nadeSeq++}`;
+    this.spawnNade(id, true, def, pos.clone(), vel, Math.max(0.05, p.nadeFuse));
+    this.evAll({ k: "nade", id, g: def.id, p: [r2(pos.x), r2(pos.y), r2(pos.z)], v: [r2(vel.x), r2(vel.y), r2(vel.z)], fuse: r2(p.nadeFuse) });
+    sfx("switch", 0.8);
+  }
+
+  // 手中的雷炸了（按住 G 太久）
+  private cookExplode() {
+    const p = this.p;
+    const def = this.grenadeDef();
+    const pos = this.eyePos();
+    p.nadeHold = false;
+    if (p.nadeCount > 0) p.nadeCount--;
+    p.nadeFuse = 0;
+    this.detonateNadeEffect(def, pos.x, pos.y, pos.z, true);
+    this.showNotice("引信烧完了！手雷在手中爆炸");
+    this.evAll({ k: "nadeboom", g: def.id, p: [r2(pos.x), r2(pos.y), r2(pos.z)] });
+  }
+
+  private spawnNade(id: string, mine: boolean, def: GrenadeDef, pos: THREE.Vector3, vel: THREE.Vector3, fuse: number) {
+    const g = new THREE.Group();
+    bx(0.15, 0.19, 0.15, 0, 0, 0, def.color, g);
+    bx(0.16, 0.04, 0.16, 0, 0.055, 0, def.accent, g);
+    bx(0.055, 0.06, 0.055, 0, 0.13, 0, 0x2b2b2b, g);
+    g.position.copy(pos);
+    this.scene.add(g);
+    this.nades.push({ id, mine, def, pos, vel, fuse, mesh: g });
+  }
+
+  private nadeFits(x: number, y: number, z: number) {
+    return this.world.fits(x, y - 0.09, z, 0.09, 0.2);
+  }
+
+  private updateNades(dt: number) {
+    for (let i = this.nades.length - 1; i >= 0; i--) {
+      const n = this.nades[i];
+      n.fuse -= dt;
+      n.vel.y -= 22 * dt;
+      const speed = n.vel.length();
+      const steps = Math.max(1, Math.min(24, Math.ceil((speed * dt) / 0.08)));
+      const h = dt / steps;
+      for (let k = 0; k < steps; k++) {
+        const nx = n.pos.x + n.vel.x * h;
+        if (this.nadeFits(nx, n.pos.y, n.pos.z)) n.pos.x = nx;
+        else n.vel.x *= -0.42;
+        const ny = n.pos.y + n.vel.y * h;
+        if (this.nadeFits(n.pos.x, ny, n.pos.z)) n.pos.y = ny;
+        else {
+          n.vel.y *= -0.32;
+          if (Math.abs(n.vel.y) < 0.75) n.vel.y = 0;
+          n.vel.x *= 0.72;
+          n.vel.z *= 0.72;
+        }
+        const nz = n.pos.z + n.vel.z * h;
+        if (this.nadeFits(n.pos.x, n.pos.y, nz)) n.pos.z = nz;
+        else n.vel.z *= -0.42;
+      }
+      n.vel.x *= 0.996;
+      n.vel.z *= 0.996;
+      n.mesh.position.copy(n.pos);
+      n.mesh.rotation.x += n.vel.z * dt * 3;
+      n.mesh.rotation.z -= n.vel.x * dt * 3;
+      if (n.fuse <= 0) {
+        if (n.mine) this.detonateNade(n);
+        this.scene.remove(n.mesh);
+        this.nades.splice(i, 1);
+        continue;
+      }
+      if (!n.mine && n.fuse < -1.5) {
+        // 远端漏包时兜底移除
+        this.scene.remove(n.mesh);
+        this.nades.splice(i, 1);
+      }
+    }
+  }
+
+  private detonateNade(n: NadeProj) {
+    const def = n.def;
+    const [x, y, z] = this.nudgeOut(n.pos.x, n.pos.y, n.pos.z, 0, 1, 0, 2);
+    if (def.kind === "he") {
+      this.explodeVisual(x, y, z, def.radius);
+      const wIdx = grenadeW(GRENADE_INDEX[def.id] ?? 0);
+      for (const e of this.hostiles(this.team, false)) {
+        if (this.nadeCovers(x, y, z, def.radius, e.x, e.y, e.z, e.scale || 1)) {
+          this.applyHit(e, def.damage, false, wIdx);
+          this.hitSeq++;
+          this.hitHead = false;
+          sfx("hit", 0.6);
+        }
+      }
+      const b = this.p.body;
+      if (this.p.alive && this.nadeCovers(x, y, z, def.radius, b.x, b.y, b.z, 1)) {
+        this.damageSelf(def.damage, false, this.cfg.pid, wIdx, x, z);
+      }
+    } else if (def.kind === "smoke") {
+      this.createSmokeZone(x, y, z, def.radius, def.duration);
+      sfx("switch", 0.8);
+    } else if (def.kind === "incendiary") {
+      this.createFireZone(x, y, z, def.radius, def.duration, def.burnTime);
+      sfx("boom", 0.45);
+    } else if (def.kind === "flash") {
+      this.flashLocal(x, y, z, def.radius, def.blindTime, false);
+      this.blindBots(x, y, z, def.radius, def.blindTime);
+      this.fx.burst(x, y, z, 0xfff7cc, 26, 5, 0.18, 0.4, 0);
+      sfx("flash", 1);
+    }
+    this.evAll({ k: "nadeboom", id: n.id, g: def.id, p: [r2(x), r2(y), r2(z)] });
+  }
+
+  // 球形范围：按目标身体离爆心最近的点判断
+  private nadeCovers(bx: number, by: number, bz: number, r: number, ex: number, ey: number, ez: number, scale: number) {
+    const hw = 0.34 * scale;
+    const h = 1.8 * scale;
+    const cx = clamp(bx, ex - hw, ex + hw);
+    const cz = clamp(bz, ez - hw, ez + hw);
+    const cy = clamp(by, ey, ey + h);
+    const d = Math.hypot(cx - bx, cy - by, cz - bz);
+    if (d >= r) return false;
+    return this.world.hasLOS(bx, by, bz, ex, ey + h * 0.55, ez) || this.world.hasLOS(bx, by + 0.2, bz, ex, ey + h * 0.25, ez);
+  }
+
+  private detonateNadeEffect(def: GrenadeDef, x: number, y: number, z: number, cooked: boolean) {
+    const [bx, by, bz] = this.nudgeOut(x, y, z, 0, 1, 0, 2);
+    if (def.kind === "he") {
+      this.explodeVisual(bx, by, bz, def.radius);
+      const wIdx = grenadeW(GRENADE_INDEX[def.id] ?? 0);
+      for (const e of this.hostiles(this.team, false)) {
+        if (this.nadeCovers(bx, by, bz, def.radius, e.x, e.y, e.z, e.scale || 1)) {
+          this.applyHit(e, def.damage, false, wIdx);
+          this.hitSeq++;
+          this.hitHead = false;
+        }
+      }
+      const b = this.p.body;
+      if (this.p.alive && this.nadeCovers(bx, by, bz, def.radius, b.x, b.y, b.z, 1)) {
+        // 手中起爆时保证把自己炸死（普通 70 点不足以击杀满血角色）
+        this.damageSelf(cooked ? 999 : def.damage, false, this.cfg.pid, wIdx, bx, bz);
+      }
+    } else if (def.kind === "smoke") {
+      this.createSmokeZone(bx, by, bz, def.radius, def.duration);
+    } else if (def.kind === "incendiary") {
+      this.createFireZone(bx, by, bz, def.radius, def.duration, def.burnTime);
+    } else if (def.kind === "flash") {
+      this.flashLocal(bx, by, bz, def.radius, def.blindTime, cooked);
+      this.blindBots(bx, by, bz, def.radius, def.blindTime);
+      sfx("flash", 1);
+    }
+  }
+
+  private onRemoteNadeBoom(d: any) {
+    const def = GRENADE_BY_ID[d.g];
+    if (!def) return;
+    this.nades = this.nades.filter((n) => {
+      if (n.id !== d.id) return true;
+      this.scene.remove(n.mesh);
+      return false;
+    });
+    const x = d.p[0], y = d.p[1], z = d.p[2];
+    const [bx, by, bz] = this.nudgeOut(x, y, z, 0, 1, 0, 2);
+    if (def.kind === "he") this.explodeVisual(bx, by, bz, def.radius);
+    else if (def.kind === "smoke") {
+      this.createSmokeZone(bx, by, bz, def.radius, def.duration);
+      this.playPos("switch", bx, bz, 0.7);
+    } else if (def.kind === "incendiary") {
+      this.createFireZone(bx, by, bz, def.radius, def.duration, def.burnTime);
+      this.playPos("boom", bx, bz, 0.35);
+    }
+    else if (def.kind === "flash") {
+      this.flashLocal(bx, by, bz, def.radius, def.blindTime, false);
+      this.blindBots(bx, by, bz, def.radius, def.blindTime);
+      sfx("flash", 0.8);
+    }
+  }
+
+  private onFxEvent(d: any) {
+    if (!d?.p) return;
+    const x = d.p[0], y = d.p[1], z = d.p[2];
+    if (d.kind === "jet") {
+      this.fx.burst(x, y + 0.3, z, 0x38bdf8, 18, 5, 0.2, 0.6, 1.5);
+      this.playPos("rocket", x, z, 0.5);
+    } else if (d.kind === "tp") {
+      this.fx.burst(x, y + 1, z, 0xa78bfa, 18, 4.5, 0.18, 0.5, 1.5);
+      this.playPos("switch", x, z, 0.7);
+    }
+  }
+
+  private createSmokeZone(x: number, y: number, z: number, r: number, dur: number) {
+    const group = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: SMOKE_COLOR, transparent: true, opacity: 0.17, depthWrite: false, fog: false });
+    const geo = new THREE.IcosahedronGeometry(1, 1);
+    for (let i = 0; i < 16; i++) {
+      const m = new THREE.Mesh(geo, mat);
+      const a = Math.random() * Math.PI * 2;
+      const u = Math.random() * 2 - 1;
+      const rr = Math.pow(Math.random(), 0.6) * 0.55;
+      const sq = Math.sqrt(1 - u * u);
+      m.position.set(Math.cos(a) * sq * rr, u * rr * 0.85, Math.sin(a) * sq * rr);
+      m.scale.setScalar(0.3 + Math.random() * 0.3);
+      group.add(m);
+    }
+    group.position.set(x, y, z);
+    group.scale.setScalar(0.2);
+    this.scene.add(group);
+    this.smokes.push({ x, y, z, r, life: dur, max: dur, group, mats: [mat] });
+  }
+
+  private createFireZone(x: number, y: number, z: number, r: number, dur: number, refresh: number) {
+    // 找到爆点下方最近的地面，把火铺在地面上
+    const down = this.world.raycast(x, y + 0.6, z, 0, -1, 0, 6);
+    const gy = down < 6 ? y + 0.6 - down : y;
+    const group = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff5a00, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false });
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 28), mat);
+    disc.rotation.x = -Math.PI / 2;
+    disc.scale.setScalar(r);
+    group.add(disc);
+    const m2 = new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 28), m2);
+    ring.rotation.x = -Math.PI / 2;
+    ring.scale.setScalar(r);
+    group.add(ring);
+    group.position.set(x, gy + 0.03, z);
+    this.scene.add(group);
+    this.fires.push({ x, y: gy, z, r, life: dur, max: dur, burn: refresh, group, mats: [mat, m2], tick: 0, fxT: 0 });
+  }
+
+  private flashLocal(x: number, y: number, z: number, r: number, secs: number, force: boolean) {
+    const p = this.p;
+    if (!p.alive) return;
+    const eye = this.eyePos();
+    const dx = x - eye.x;
+    const dy = y - eye.y;
+    const dz = z - eye.z;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist > r) return;
+    if (!force) {
+      if (dist > 0.05 && this.world.raycast(eye.x, eye.y, eye.z, dx / dist, dy / dist, dz / dist, dist - 0.15) < dist - 0.15) return;
+      const { f } = this.camBasis();
+      const dot = dist < 0.05 ? 1 : (dx * f.x + dy * f.y + dz * f.z) / dist;
+      const fov = (this.cam.fov * Math.PI) / 180;
+      const halfH = Math.atan(Math.tan(fov * 0.5) * Math.max(1, this.cam.aspect));
+      if (dot < Math.cos(Math.min(1.4, halfH + 0.08))) return;
+    }
+    p.blind = Math.max(p.blind, secs);
+  }
+
+  private blindBots(x: number, y: number, z: number, r: number, secs: number) {
+    if (!this.isHost) return;
+    for (const bot of this.bots.values()) {
+      const e = bot.ent;
+      if (!e.alive) continue;
+      const ex = e.x;
+      const ey = e.y + 1.55;
+      const ez = e.z;
+      const dx = x - ex;
+      const dy = y - ey;
+      const dz = z - ez;
+      const dist = Math.hypot(dx, dy, dz);
+      if (dist > r || dist < 0.05) continue;
+      if (!this.world.hasLOS(ex, ey, ez, x, y, z)) continue;
+      const fx = -Math.sin(e.yaw);
+      const fz = -Math.cos(e.yaw);
+      const dot = (dx * fx + dz * fz) / dist;
+      if (dot < 0.35) continue;
+      bot.blindT = Math.max(bot.blindT, secs);
+    }
+  }
+
+  private updateGrenadeState(dt: number) {
+    const p = this.p;
+    // 手持引信
+    if (p.nadeHold) {
+      p.nadeFuse -= dt;
+      p.nadeCook += dt;
+      if (p.nadeFuse <= 0) this.cookExplode();
+    }
+    if (p.nadeThrow > 0) p.nadeThrow = Math.max(0, p.nadeThrow - dt);
+    p.nadeCook = p.nadeHold ? p.nadeCook : 0;
+
+    // 状态效果
+    if (p.blind > 0) p.blind = Math.max(0, p.blind - dt);
+    if (p.burn > 0 && p.alive) {
+      p.burn = Math.max(0, p.burn - dt);
+      p.burnAcc += dt;
+      while (p.burnAcc >= BURN_TICK) {
+        p.burnAcc -= BURN_TICK;
+        this.damageSelf(10 * BURN_TICK, false, "fire", grenadeW(GRENADE_INDEX["incendiary"] ?? 0));
+      }
+      p.burnFx -= dt;
+      if (p.burnFx <= 0) {
+        p.burnFx = 0.08;
+        this.fx.burst(p.body.x + (Math.random() - 0.5) * 0.5, p.body.y + 0.4, p.body.z + (Math.random() - 0.5) * 0.5, 0xff7a1a, 2, 1.2, 0.14, 0.5, -1.5);
+      }
+    } else {
+      p.burnAcc = 0;
+    }
+    if (p.noticeT > 0) {
+      p.noticeT = Math.max(0, p.noticeT - dt);
+      if (p.noticeT <= 0) p.notice = "";
+    }
+    // 背包冷却
+    p.bpCd = Math.max(0, p.bpCd - dt);
+    p.tpCd = Math.max(0, p.tpCd - dt);
+    if (p.jetCd > 0) p.jetCd = Math.max(0, p.jetCd - dt);
+    // 悬浮阶段如果提前落地，立即结束悬浮并从落地瞬间开始计算冷却
+    if (p.jetActive && p.jetHover > 0 && p.body.onGround && p.jetRise <= 0) {
+      p.jetActive = false;
+      p.jetHover = 0;
+    }
+    if (p.jetUsed && !p.jetActive && p.body.onGround) {
+      p.jetUsed = false;
+      p.jetCd = 15;
+      this.showNotice("喷射背包已落地 · 冷却 15s");
+    }
+
+    // 烟雾 / 燃烧区域
+    this.updateZones(dt);
+
+    // 烟中能见度
+    const eye = this.eyePos();
+    this.smokeVision = this.smokes.some((s) => Math.hypot(eye.x - s.x, eye.y - s.y, eye.z - s.z) <= s.r);
+    if (this.isHost) {
+      for (const bot of this.bots.values()) {
+        const e = bot.ent;
+        bot.inSmoke = this.smokes.some((s) => Math.hypot(e.x - s.x, e.y + 1 - s.y, e.z - s.z) <= s.r);
+      }
+    }
+  }
+
+  private updateZones(dt: number) {
+    for (let i = this.smokes.length - 1; i >= 0; i--) {
+      const s = this.smokes[i];
+      s.life -= dt;
+      if (s.life <= 0) {
+        this.scene.remove(s.group);
+        s.group.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (mesh.geometry) mesh.geometry.dispose();
+        });
+        for (const m of s.mats) m.dispose();
+        this.smokes.splice(i, 1);
+        continue;
+      }
+      const grow = Math.min(1, (s.max - s.life) / 0.45);
+      s.group.scale.setScalar(Math.max(0.05, s.r * grow));
+      const fade = Math.min(1, s.life / 1.2);
+      for (const m of s.mats) m.opacity = 0.17 * fade;
+    }
+    for (let i = this.fires.length - 1; i >= 0; i--) {
+      const f = this.fires[i];
+      f.life -= dt;
+      if (f.life <= 0) {
+        this.scene.remove(f.group);
+        f.group.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (mesh.geometry) mesh.geometry.dispose();
+        });
+        for (const m of f.mats) m.dispose();
+        this.fires.splice(i, 1);
+        continue;
+      }
+      const fade = Math.min(1, f.life / 0.8);
+      const pulse = 0.36 + Math.sin(this.time * 9 + i) * 0.08;
+      f.mats[0].opacity = pulse * fade;
+      f.mats[1].opacity = 0.3 * fade;
+      f.fxT -= dt;
+      if (f.fxT <= 0) {
+        f.fxT = 0.07;
+        const a = Math.random() * Math.PI * 2;
+        const rr = Math.sqrt(Math.random()) * f.r * 0.92;
+        this.fx.burst(f.x + Math.cos(a) * rr, f.y + 0.08, f.z + Math.sin(a) * rr, 0xff7a1a, 1, 0.9, 0.16, 0.5, -2);
+      }
+      const b = this.p.body;
+      if (this.p.alive && Math.hypot(b.x - f.x, b.z - f.z) <= f.r && b.y >= f.y - 0.7 && b.y <= f.y + 1.7) {
+        this.p.burn = Math.max(this.p.burn, f.burn);
+      }
+      f.tick += dt;
+      const fxReady = f.tick >= 0.25;
+      if (fxReady) f.tick = 0;
+      if (this.isHost) {
+        for (const bot of this.bots.values()) {
+          const e = bot.ent;
+          if (!e.alive) continue;
+          if (Math.hypot(e.x - f.x, e.z - f.z) <= f.r && Math.abs(e.y - f.y) <= 1.7) {
+            bot.burnT = Math.max(bot.burnT, f.burn);
+            if (fxReady) this.fx.burst(e.x, e.y + 0.6, e.z, 0xff7a1a, 2, 1.2, 0.14, 0.45, -1.5);
+          }
+        }
+      }
+    }
+  }
+
+  // ───────────────────────── 背包 ─────────────────────────
+  private backpackDef(): BackpackDef {
+    return resolveBackpack(this.loadout.heavy, this.loadout.backpack);
+  }
+
+  private showNotice(text: string) {
+    this.p.notice = text;
+    this.p.noticeT = 2.2;
+  }
+
+  private useBackpack() {
+    const p = this.p;
+    if (!p.alive) return;
+    const bp = this.backpackDef();
+    if (p.jetActive) {
+      this.showNotice("喷射背包正在使用中");
+      return;
+    }
+    if (bp.kind === "ammo") {
+      this.showNotice(`${bp.name}：三号位武器的弹药库存`);
+      return;
+    }
+    if (p.bpCd > 0) {
+      this.showNotice(`背包冷却中 ${fmtCd(p.bpCd)}`);
+      return;
+    }
+    if (bp.kind === "supply") {
+      if (p.bpCharges <= 0) {
+        this.showNotice("补给背包：补给已用完");
+        return;
+      }
+      p.bpCharges--;
+      for (const w of p.w) {
+        w.reserve = w.def.mag * w.def.mags;
+        w.reloadT = 0;
+      }
+      p.nadeCount = GRENADE_STOCK;
+      p.healCharges = Math.min(RULES.healUses, p.healCharges + 2);
+      p.bpCd = 0.6;
+      this.showNotice(`补给完成 · 剩余 ${p.bpCharges}/${bp.charges} · 回血 +2`);
+      sfx("heal", 0.9);
+      return;
+    }
+    if (bp.kind === "jet") {
+      if (p.jetUsed) {
+        this.showNotice("喷射背包使用中");
+        return;
+      }
+      if (p.jetCd > 0) {
+        this.showNotice(`喷射背包冷却中 ${fmtCd(p.jetCd)}`);
+        return;
+      }
+      p.jetActive = true;
+      p.jetUsed = true;
+      p.jetRise = JET_RISE;
+      p.jetHover = 0;
+      p.jetCd = 0;
+      p.ads = 0;
+      p.slide = 0;
+      this.showNotice("喷射背包：升空并悬浮 4s");
+      this.fx.burst(p.body.x, p.body.y + 0.2, p.body.z, 0x38bdf8, 16, 4, 0.18, 0.5, 1.5);
+      this.evAll({ k: "fx", kind: "jet", p: [r2(p.body.x), r2(p.body.y), r2(p.body.z)] });
+      sfx("rocket", 0.8);
+      return;
+    }
+    if (bp.kind === "teleport") {
+      if (p.tpCd > 0) {
+        this.showNotice(`传送背包冷却中 ${fmtCd(p.tpCd)}`);
+        return;
+      }
+      if (!this.teleportSelf()) return;
+      p.tpCd = bp.cd;
+      this.showNotice("传送背包：跃迁 4m");
+      return;
+    }
+  }
+
+  // 沿视角方向跃迁，并自动寻找不会卡进墙里的落点
+  private teleportSelf(): boolean {
+    const p = this.p;
+    const b = p.body;
+    const { f } = this.camBasis();
+    const m = this.map;
+    const hw = b.hw;
+    const h = b.h;
+    const maxX = m.hx - 1;
+    const maxZ = m.hz - 1;
+    const fits = (x: number, y: number, z: number) => this.world.fits(x, y, z, hw, h);
+    const findSpot = (x: number, y: number, z: number): [number, number, number] | null => {
+      const cx = clamp(x, -maxX, maxX);
+      const cz = clamp(z, -maxZ, maxZ);
+      const cy = clamp(y, -8, 80);
+      if (fits(cx, cy, cz)) return [cx, cy, cz];
+      // 垂直微调（上下台阶 / 地板 / 天花板）
+      for (let d = 0.25; d <= 2.4; d += 0.25) {
+        if (fits(cx, cy + d, cz)) return [cx, cy + d, cz];
+        if (fits(cx, cy - d, cz)) return [cx, cy - d, cz];
+      }
+      // 附近找最近空位，避免落点在方块内部
+      for (let rad = 0.3; rad <= 1.5; rad += 0.3) {
+        for (let a = 0; a < 12; a++) {
+          const ang = (a / 12) * Math.PI * 2;
+          const ox = Math.cos(ang) * rad;
+          const oz = Math.sin(ang) * rad;
+          for (let dy = 0; dy <= 2.0; dy += 0.4) {
+            if (fits(cx + ox, cy + dy, cz + oz)) return [cx + ox, cy + dy, cz + oz];
+          }
+        }
+      }
+      return null;
+    };
+    let spot: [number, number, number] | null = null;
+    const samples = 10;
+    for (let i = 0; i < samples; i++) {
+      const d = TELEPORT_DIST * (1 - i / samples);
+      spot = findSpot(b.x + f.x * d, b.y + f.y * d, b.z + f.z * d);
+      if (spot) break;
+    }
+    if (!spot) {
+      this.showNotice("传送失败：前方没有安全落点");
+      return false;
+    }
+    b.x = spot[0];
+    b.y = spot[1];
+    b.z = spot[2];
+    b.vx = b.vy = b.vz = 0;
+    b.onGround = false;
+    p.slide = 0;
+    p.stepOff = 0;
+    p.eye = HEIGHTS[p.stance];
+    this.fx.burst(b.x, b.y + 1, b.z, 0xa78bfa, 20, 4, 0.18, 0.5, 1.5);
+    this.evAll({ k: "fx", kind: "tp", p: [r2(b.x), r2(b.y), r2(b.z)] });
+    sfx("switch", 0.9);
+    return true;
   }
 
   private camBasis() {
@@ -1227,11 +1951,19 @@ export class Game {
     if (p.hp <= 0) this.die();
   }
 
+  private weaponName(w: number): string {
+    const g = grenadeFromW(w);
+    if (g) return g.name;
+    return WEAPONS[w]?.name ?? "";
+  }
+
   private nameOf(id: string): string {
+    if (id === "fire") return "燃烧地面";
     if (id === this.cfg.pid) return this.cfg.name;
     return this.players.get(id)?.name ?? this.ents.get(id)?.name ?? "未知";
   }
   private teamOf(id: string): number {
+    if (id === "fire") return -1;
     if (id === this.cfg.pid) return this.team;
     return this.players.get(id)?.team ?? this.ents.get(id)?.team ?? 0;
   }
@@ -1246,6 +1978,13 @@ export class Game {
     p.slide = 0;
     p.slowT = 0;
     p.ads = 0;
+    p.nadeHold = false;
+    p.nadeThrow = 0;
+    p.blind = 0;
+    p.burn = 0;
+    p.jetActive = false;
+    p.jetRise = 0;
+    p.jetHover = 0;
     this.selfEnt.alive = false;
     const killer = p.last.from || this.cfg.pid;
     const d = { k: "kill", killer, victim: this.cfg.pid, w: p.last.w, head: p.last.head, kn: this.nameOf(killer), vn: this.cfg.name, kt: this.teamOf(killer), vt: this.team };
@@ -1261,7 +2000,7 @@ export class Game {
 
   private onKill(d: any) {
     const me = d.killer === this.cfg.pid && d.victim !== this.cfg.pid;
-    this.feed.push({ id: this.feedSeq++, t: this.time, killer: d.kn, victim: d.vn, w: WEAPONS[d.w]?.name ?? "", head: !!d.head, kt: d.kt, vt: d.vt, me, died: d.victim === this.cfg.pid });
+    this.feed.push({ id: this.feedSeq++, t: this.time, killer: d.kn, victim: d.vn, w: this.weaponName(d.w), head: !!d.head, kt: d.kt, vt: d.vt, me, died: d.victim === this.cfg.pid });
     if (this.feed.length > 6) this.feed.shift();
     if (me) {
       this.p.kills++;
@@ -1525,6 +2264,8 @@ export class Game {
     const p = this.p;
     this.updatePlayer(dt);
     this.updateWeapons(dt);
+    this.updateNades(dt);
+    this.updateGrenadeState(dt);
     this.updateProjs(dt);
     this.updateEnts(dt);
     if (this.isHost) this.hostUpdate(dt);
@@ -1581,7 +2322,7 @@ export class Game {
 
     // 体力 / 冲刺
     if (p.exhausted && p.stamina >= 15) p.exhausted = false;
-    const want = shift && fwd > 0 && p.stance === 0 && p.slide <= 0 && !this.mouseL && p.healT <= 0 && w.reloadT <= 0 && !this.mouseR;
+    const want = shift && fwd > 0 && p.stance === 0 && p.slide <= 0 && !this.mouseL && p.healT <= 0 && w.reloadT <= 0 && !this.mouseR && !p.nadeHold && p.slot < 3;
     p.sprinting = want && !p.exhausted && p.stamina > 0 && b.onGround;
     const drain = 100 / RULES.sprintSeconds;
     if (p.sprinting) {
@@ -1601,9 +2342,8 @@ export class Game {
     // 速度
     let speed = p.stance === 0 ? 5.2 : p.stance === 1 ? 2.8 : 1.4;
     if (p.sprinting) speed = 8.4;
-    speed *= w.def.moveMul;
-    // 重型三号位武器持握时移速 75%
-    if (w.def.weight === "heavy") speed *= RULES.heavyMoveMul;
+    if (p.slot < 3) speed *= w.def.moveMul;
+    if (p.nadeHold) speed *= 0.92;
     if (p.ads > 0.1) speed *= 1 - 0.4 * p.ads;
     if (p.healT > 0) speed *= 0.75;
     if (p.slowT > 0) speed *= 0.55; // 酸液减速
@@ -1653,9 +2393,25 @@ export class Game {
       b.vx += (tx - b.vx) * k;
       b.vz += (tz - b.vz) * k;
     }
+    // 喷射背包：上升 + 悬浮期间关闭重力
+    let jetGravity = true;
+    if (p.jetActive) {
+      jetGravity = false;
+      if (p.jetRise > 0) {
+        b.vy = 8.5;
+        p.jetRise = Math.max(0, p.jetRise - 8.5 * dt);
+        if (p.jetRise <= 0) p.jetHover = JET_HOVER;
+      } else if (p.jetHover > 0) {
+        b.vy = 0;
+        p.jetHover = Math.max(0, p.jetHover - dt);
+      } else {
+        p.jetActive = false;
+        jetGravity = true;
+      }
+    }
     const y0 = b.y;
     const wasGround = b.onGround;
-    this.world.moveBody(b, dt);
+    this.world.moveBody(b, dt, jetGravity);
     if (wasGround && b.onGround && b.y - y0 > 0.04 && b.vy <= 0) p.stepOff += b.y - y0;
     p.speed = Math.hypot(b.vx, b.vz);
     if (p.slowT > 0) p.slowT = Math.max(0, p.slowT - dt);
@@ -1681,6 +2437,12 @@ export class Game {
     p.fireBuf = Math.max(0, p.fireBuf - dt);
     p.switchT = Math.max(0, p.switchT - dt);
     if (!p.alive) return;
+    // 四号位（手雷）：不进行开火 / 换弹 / 瞄准
+    if (p.slot >= 3) {
+      p.ads = Math.max(0, p.ads - dt * 8);
+      p.fireBuf = 0;
+      return;
+    }
     const w = this.cur();
     const d = w.def;
     if (w.reloadT > 0) {
@@ -1719,6 +2481,22 @@ export class Game {
     if (!r) return;
     const p = this.p;
     const b = p.body;
+    // 烟雾中的能见度：收窄雾距并把背景换成烟色
+    if (this.map) {
+      const fog = this.scene.fog as THREE.Fog;
+      const bg = this.scene.background as THREE.Color;
+      if (this.smokeVision) {
+        fog.color.setHex(SMOKE_COLOR);
+        fog.near = SMOKE_FOG_NEAR;
+        fog.far = SMOKE_FOG_FAR;
+        bg?.setHex(SMOKE_COLOR);
+      } else {
+        fog.color.setHex(this.map.fog);
+        fog.near = 50;
+        fog.far = 190;
+        bg?.setHex(this.map.sky);
+      }
+    }
     const d = this.cur()?.def;
     const zoom = d ? 1 + (d.zoom - 1) * p.ads : 1;
     const sprintFov = p.sprinting ? 5 : 0;
@@ -1752,6 +2530,29 @@ export class Game {
   private updateViewModel(dt: number) {
     const p = this.p;
     this.vmWeapons.forEach((g, i) => (g.visible = i === p.slot && p.alive));
+    this.vmGrenade.visible = p.alive && p.slot === 3 && (p.nadeCount > 0 || p.nadeHold);
+    if (p.slot === 3) {
+      const cook = p.nadeHold ? clamp(p.nadeCook / 0.45, 0, 1) : 0;
+      const th = p.nadeThrow > 0 ? p.nadeThrow / 0.35 : 0;
+      let gx = 0.2 - 0.08 * cook + Math.sin(p.bob) * 0.01;
+      let gy = -0.2 + 0.1 * cook + Math.abs(Math.cos(p.bob)) * 0.008;
+      let gz = -0.4 + 0.06 * cook - 0.18 * th;
+      let rx = -0.1 + 0.2 * cook - 0.5 * th;
+      let rz = 0.1 + 0.15 * cook;
+      // 引信快烧完时手会抖
+      if (p.nadeHold && p.nadeFuse < 1) {
+        gx += Math.sin(this.time * 42) * 0.012;
+        gy += Math.cos(this.time * 37) * 0.01;
+        rz += Math.sin(this.time * 31) * 0.08;
+      }
+      this.vmGrenade.position.set(gx, gy, gz);
+      this.vmGrenade.rotation.set(rx, 0.15 - cook * 0.2, rz);
+      if (this.vmGrenadeBody) {
+        const mat = this.vmGrenadeBody.material as THREE.MeshLambertMaterial;
+        mat.emissive.setHex(p.nadeHold && p.nadeFuse < 1.2 ? 0x881100 : 0x000000);
+      }
+      return;
+    }
     const g = this.vmWeapons[p.slot];
     if (!g) return;
     const w = this.cur();
@@ -1824,7 +2625,7 @@ export class Game {
     for (const e of this.ents.values()) {
       if (!e.alive) continue;
       if (e.team === this.team) dot(e.x, e.z, "#" + TEAM_COLORS[e.team % 4].toString(16).padStart(6, "0"), 3);
-      else if (this.mode === "defense") dot(e.x, e.z, "#ff3b30", 2.4);
+      else if (this.mode === "defense" && !this.smokeVision) dot(e.x, e.z, "#ff3b30", 2.4);
     }
     const b = this.p.body;
     g.save();
@@ -1863,7 +2664,7 @@ export class Game {
     h.sliding = p.slide > 0;
     h.slot = p.slot;
     h.weapons = p.w.map((w): WeaponHud => ({ id: w.def.id, name: w.def.name, slot: w.def.slot, cat: w.def.cat, mag: w.mag, reserve: w.reserve, magSize: w.def.mag, reloading: w.reloadT > 0, melee: w.def.type === "melee" }));
-    const cw = this.cur();
+    const cw = p.slot < 3 ? this.cur() : null;
     h.reloadProg = cw && cw.reloadT > 0 ? 1 - cw.reloadT / p.reloadTotal : 0;
     h.heal = p.healCharges;
     h.healing = p.healT > 0;
@@ -1904,6 +2705,49 @@ export class Game {
     h.protectT = Math.max(0, p.protect);
     h.isHost = this.isHost;
     h.board = this.showBoard ? this.buildBoard() : [];
+    // 四号位手雷 / 背包
+    const gd = this.grenadeDef();
+    h.grenade = {
+      id: gd.id,
+      name: gd.name,
+      kind: gd.kind,
+      count: p.nadeCount,
+      maxCount: GRENADE_STOCK,
+      fuse: Math.max(0, p.nadeFuse),
+      maxFuse: Math.max(0.01, gd.fuse),
+      holding: p.nadeHold,
+    };
+    const bp = this.backpackDef();
+    const bpReady = bp.kind === "ammo"
+      ? false
+      : bp.kind === "supply"
+        ? p.bpCharges > 0 && p.bpCd <= 0
+        : bp.kind === "jet"
+          ? p.jetCd <= 0 && !p.jetUsed && !p.jetActive
+          : p.tpCd <= 0;
+    const bpState = bp.kind === "ammo"
+      ? "弹药库存"
+      : bp.kind === "supply"
+        ? (p.bpCharges > 0 ? `剩余 ${p.bpCharges}/${bp.charges}` : "补给已用完")
+        : bp.kind === "jet"
+          ? (p.jetActive ? "使用中" : p.jetUsed ? "落地后开始冷却" : p.jetCd > 0 ? `冷却 ${p.jetCd.toFixed(1)}s` : "就绪")
+          : p.tpCd > 0 ? `冷却 ${p.tpCd.toFixed(1)}s` : "就绪";
+    h.backpack = {
+      id: bp.id,
+      name: bp.name,
+      kind: bp.kind,
+      charges: p.bpCharges,
+      maxCharges: bp.charges,
+      cd: bp.kind === "teleport" ? p.tpCd : bp.kind === "jet" ? (p.jetUsed ? Math.max(p.jetCd, 1) : p.jetCd) : p.bpCd,
+      ready: bpReady,
+      occupied: backpackOccupiedBy(this.loadout.heavy),
+      ammo: bp.kind === "ammo" ? (this.loadout.heavy === "rpg" ? "火箭弹" : "链式弹药") : "",
+      state: bpState,
+    };
+    h.burning = p.burn;
+    h.blind = clamp(p.blind / 0.6, 0, 1);
+    h.inSmoke = this.smokeVision;
+    h.notice = p.notice;
     return { ...h };
   }
 

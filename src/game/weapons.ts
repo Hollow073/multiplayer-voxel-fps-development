@@ -1,4 +1,5 @@
-// 武器数据：一号位(主武器) / 二号位(副武器) / 三号位(重武器)
+// 武器数据：一号位(主武器) / 二号位(副武器) / 三号位(重武器) / 四号位(手雷, 见 equipment.ts)
+import { GRENADE_BY_ID, DEFAULT_GRENADE, BACKPACK_BY_ID, DEFAULT_BACKPACK } from "./equipment";
 
 export type Cat =
   | "rifle"
@@ -11,8 +12,6 @@ export type Cat =
   | "melee"
   | "heavy";
 export type WType = "gun" | "melee" | "rocket" | "grenade";
-// 三号位重量：重型武器持握时移动速度降为 75%，轻型无惩罚
-export type Weight = "light" | "heavy";
 
 export interface WeaponDef {
   id: string;
@@ -21,7 +20,6 @@ export interface WeaponDef {
   slot: 1 | 2 | 3;
   cat: Cat;
   type: WType;
-  weight?: Weight;
   damage: number; // 单发/单颗弹丸伤害 (爆炸物为中心伤害)
   pellets: number;
   rpm: number;
@@ -58,7 +56,6 @@ export const RULES = {
   staminaRegenMul: 3, // 恢复速度为消耗速度的 3 倍（原 1.5 倍的两倍）
   staminaRegenDelay: 0.5, // 停止冲刺/滑铲后 0.5s 才开始恢复
   slideCost: 25, // 滑铲消耗 1/4 体力
-  heavyMoveMul: 0.75, // 重型三号位武器持握时的移动速度
   respawnTime: 4,
 };
 
@@ -109,14 +106,14 @@ export const WEAPONS: WeaponDef[] = [
   mk({ id: "svd", name: "SVD 半自动狙击枪", en: "SVD", slot: 1, cat: "sniper", damage: 72, rpm: 150, auto: false, mag: 10, mags: 5, reload: 3.2, spread: 7, adsSpread: 0.06, recoilV: 2.4, recoilH: 0.4, range: 150, maxRange: 350, minMul: 0.95, moveMul: 0.9, zoom: 3.2, scope: true, color: 0x5a4632, accent: 0x1a1a1a, len: 1.15, desc: "半自动精确射手步枪，爆头一击致命。" }),
 
   // ───────── 散弹枪 (近距离 / 散射大) ─────────
-  mk({ id: "m870", name: "M870 泵动霰弹枪", en: "M870", slot: 1, cat: "shotgun", damage: 12, pellets: 10, rpm: 70, auto: false, mag: 6, mags: 6, reload: 3.0, spread: 3.2, adsSpread: 2.2, recoilV: 4, recoilH: 0.8, range: 10, maxRange: 32, minMul: 0.2, moveMul: 0.98, zoom: 1.15, color: 0x4b3a2a, accent: 0x303030, len: 0.85, desc: "半自动(泵动)，近距离威力巨大。" }),
-  mk({ id: "spas", name: "SPAS-12 战术霰弹枪", en: "SPAS-12", slot: 1, cat: "shotgun", damage: 11, pellets: 9, rpm: 130, auto: false, mag: 8, mags: 5, reload: 3.2, spread: 3.6, adsSpread: 2.5, recoilV: 3, recoilH: 0.7, range: 11, maxRange: 34, minMul: 0.2, moveMul: 0.97, zoom: 1.15, color: 0x2a2a2a, accent: 0x6b7280, len: 0.85, desc: "半自动，连射速度较快。" }),
-  mk({ id: "aa12", name: "AA-12 全自动霰弹枪", en: "AA-12", slot: 1, cat: "shotgun", damage: 7.5, pellets: 8, rpm: 300, auto: true, mag: 20, mags: 4, reload: 3.6, spread: 4.2, adsSpread: 3.0, recoilV: 2.2, recoilH: 1, range: 9, maxRange: 30, minMul: 0.2, moveMul: 0.93, zoom: 1.15, color: 0x3a3f2a, accent: 0x202020, len: 0.8, desc: "全自动霰弹枪，泼水般的火力。" }),
+  mk({ id: "m870", name: "M870 泵动霰弹枪", en: "M870", slot: 1, cat: "shotgun", damage: 11, pellets: 10, rpm: 70, auto: false, mag: 6, mags: 6, reload: 3.0, spread: 3.2, adsSpread: 2.2, recoilV: 4, recoilH: 0.8, range: 10, maxRange: 32, minMul: 0.2, moveMul: 0.98, zoom: 1.15, color: 0x4b3a2a, accent: 0x303030, len: 0.85, desc: "半自动(泵动)，近距离威力巨大。" }),
+  mk({ id: "spas", name: "SPAS-12 战术霰弹枪", en: "SPAS-12", slot: 1, cat: "shotgun", damage: 10, pellets: 9, rpm: 130, auto: false, mag: 8, mags: 5, reload: 3.2, spread: 3.6, adsSpread: 2.5, recoilV: 3, recoilH: 0.7, range: 11, maxRange: 34, minMul: 0.2, moveMul: 0.97, zoom: 1.15, color: 0x2a2a2a, accent: 0x6b7280, len: 0.85, desc: "半自动，连射速度较快。" }),
+  mk({ id: "aa12", name: "AA-12 全自动霰弹枪", en: "AA-12", slot: 1, cat: "shotgun", damage: 7, pellets: 8, rpm: 300, auto: true, mag: 20, mags: 4, reload: 3.6, spread: 4.2, adsSpread: 3.0, recoilV: 2.2, recoilH: 1, range: 9, maxRange: 30, minMul: 0.2, moveMul: 0.93, zoom: 1.15, color: 0x3a3f2a, accent: 0x202020, len: 0.8, desc: "全自动霰弹枪，泼水般的火力。" }),
 
   // ───────── 轻机枪 (中远距离 / 大弹容 / 换弹慢 / 高伤害) ─────────
-  mk({ id: "m249", name: "M249 SAW", en: "M249", slot: 1, cat: "lmg", damage: 30, rpm: 720, mag: 100, mags: 3, reload: 5.5, spread: 3, adsSpread: 0.9, recoilV: 0.8, recoilH: 0.5, range: 50, maxRange: 140, minMul: 0.7, moveMul: 0.82, zoom: 1.3, color: 0x30343a, accent: 0x4d5a3a, len: 1.0, desc: "100发弹链，持续压制火力。" }),
-  mk({ id: "rpk", name: "RPK 轻机枪", en: "RPK", slot: 1, cat: "lmg", damage: 35, rpm: 600, mag: 75, mags: 3, reload: 5.0, spread: 3, adsSpread: 0.7, recoilV: 1.1, recoilH: 0.5, range: 52, maxRange: 150, minMul: 0.7, moveMul: 0.85, zoom: 1.35, color: 0x4a3322, accent: 0x222222, len: 0.98, desc: "伤害较高，精度不错的轻机枪。" }),
-  mk({ id: "pkm", name: "PKM 通用机枪", en: "PKM", slot: 1, cat: "lmg", damage: 40, rpm: 640, mag: 100, mags: 3, reload: 6.2, spread: 3.4, adsSpread: 1.0, recoilV: 1.3, recoilH: 0.7, range: 55, maxRange: 160, minMul: 0.7, moveMul: 0.78, zoom: 1.3, color: 0x2b3a2b, accent: 0x15191c, len: 1.05, desc: "高伤害轻机枪，机动性最差。" }),
+  mk({ id: "m249", name: "M249 SAW", en: "M249", slot: 1, cat: "lmg", damage: 35, rpm: 720, mag: 75, mags: 2, reload: 5.5, spread: 3, adsSpread: 0.9, recoilV: 0.8, recoilH: 0.5, range: 50, maxRange: 140, minMul: 0.7, moveMul: 0.82, zoom: 1.3, color: 0x30343a, accent: 0x4d5a3a, len: 1.0, desc: "75发弹链、150发备弹，持续压制火力。" }),
+  mk({ id: "rpk", name: "RPK 轻机枪", en: "RPK", slot: 1, cat: "lmg", damage: 38, rpm: 600, mag: 60, mags: 2, reload: 5.0, spread: 3, adsSpread: 0.7, recoilV: 1.1, recoilH: 0.5, range: 52, maxRange: 150, minMul: 0.7, moveMul: 0.85, zoom: 1.35, color: 0x4a3322, accent: 0x222222, len: 0.98, desc: "伤害较高，精度不错的轻机枪。" }),
+  mk({ id: "pkm", name: "PKM 通用机枪", en: "PKM", slot: 1, cat: "lmg", damage: 42, rpm: 640, mag: 80, mags: 2, reload: 6.2, spread: 3.4, adsSpread: 1.0, recoilV: 1.3, recoilH: 0.7, range: 55, maxRange: 160, minMul: 0.7, moveMul: 0.78, zoom: 1.3, color: 0x2b3a2b, accent: 0x15191c, len: 1.05, desc: "高伤害轻机枪，机动性最差。" }),
 
   // ───────── 二号位：手枪 ─────────
   mk({ id: "m1911", name: "M1911 手枪", en: "M1911", slot: 2, cat: "pistol", damage: 34, rpm: 330, auto: false, mag: 8, mags: 6, reload: 1.5, spread: 2.2, adsSpread: 0.4, recoilV: 1.4, recoilH: 0.3, range: 25, maxRange: 80, minMul: 0.55, moveMul: 1.06, zoom: 1.15, color: 0x555a63, accent: 0x2c2c2c, len: 0.35, desc: "经典.45口径，单发伤害高。" }),
@@ -129,9 +126,9 @@ export const WEAPONS: WeaponDef[] = [
   mk({ id: "machete", name: "砍刀", en: "Machete", slot: 2, cat: "melee", type: "melee", damage: 65, rpm: 100, auto: true, mag: 0, mags: 0, reload: 0, range: 2.5, maxRange: 2.5, minMul: 1, moveMul: 1.08, color: 0xb0b6bd, accent: 0x2d2d2d, len: 0.55, desc: "速度与威力兼顾的丛林砍刀。" }),
 
   // ───────── 三号位：重武器 ─────────
-  mk({ id: "rpg", name: "RPG-7 火箭筒", en: "RPG-7", slot: 3, cat: "heavy", type: "rocket", weight: "heavy", damage: 170, rpm: 40, auto: false, mag: 1, mags: 3, reload: 3.4, spread: 0.8, adsSpread: 0.1, recoilV: 4, recoilH: 0.5, range: 400, maxRange: 400, minMul: 1, moveMul: 0.75, zoom: 1.5, radius: 7, speed: 42, color: 0x4d5a3a, accent: 0x3a3a3a, len: 1.1, desc: "火箭弹，大范围爆炸伤害。重型：持握时移速 75%。" }),
-  mk({ id: "hmg", name: "M2 重机枪", en: "M2HB", slot: 3, cat: "heavy", type: "gun", weight: "heavy", damage: 48, rpm: 480, auto: true, mag: 100, mags: 2, reload: 7.5, spread: 3.6, adsSpread: 1.8, recoilV: 0.9, recoilH: 0.6, range: 70, maxRange: 180, minMul: 0.7, moveMul: 0.75, zoom: 1.25, color: 0x2e3a2e, accent: 0x15181a, len: 1.15, desc: "重型机枪，火力凶猛但极其笨重。重型：持握时移速 75%。" }),
-  mk({ id: "gl", name: "M32 榴弹发射器", en: "M32 MGL", slot: 3, cat: "heavy", type: "grenade", weight: "light", damage: 115, rpm: 110, auto: false, mag: 10, mags: 3, reload: 4.5, spread: 1.2, adsSpread: 0.3, recoilV: 3, recoilH: 0.4, range: 300, maxRange: 300, minMul: 1, moveMul: 1, zoom: 1.35, radius: 5, speed: 30, color: 0x3d4a35, accent: 0x222222, len: 0.8, desc: "3个备用弹链，每链10发榴弹。轻型：无移动惩罚。" }),
+  mk({ id: "rpg", name: "RPG-7 火箭筒", en: "RPG-7", slot: 3, cat: "heavy", type: "rocket", damage: 170, rpm: 40, auto: false, mag: 1, mags: 3, reload: 3.4, spread: 0.8, adsSpread: 0.1, recoilV: 4, recoilH: 0.5, range: 400, maxRange: 400, minMul: 1, moveMul: 1, zoom: 1.5, radius: 7, speed: 42, color: 0x4d5a3a, accent: 0x3a3a3a, len: 1.1, desc: "火箭弹，大范围爆炸伤害。占用背包位作为火箭弹库存，无移速惩罚。" }),
+  mk({ id: "hmg", name: "M2 重机枪", en: "M2HB", slot: 3, cat: "heavy", type: "gun", damage: 48, rpm: 960, auto: true, mag: 150, mags: 2, reload: 7.5, spread: 3.6, adsSpread: 1.8, recoilV: 0.9, recoilH: 0.6, range: 70, maxRange: 180, minMul: 0.7, moveMul: 1, zoom: 1.25, color: 0x2e3a2e, accent: 0x15181a, len: 1.15, desc: "弹匣 150 发、备弹 300 发的链式重机枪，射速极高。占用背包位作为弹链库存，无移速惩罚。" }),
+  mk({ id: "gl", name: "M32 榴弹发射器", en: "M32 MGL", slot: 3, cat: "heavy", type: "grenade", damage: 115, rpm: 110, auto: false, mag: 10, mags: 3, reload: 4.5, spread: 1.2, adsSpread: 0.3, recoilV: 3, recoilH: 0.4, range: 300, maxRange: 300, minMul: 1, moveMul: 1, zoom: 1.35, radius: 5, speed: 30, color: 0x3d4a35, accent: 0x222222, len: 0.8, desc: "3个备用弹链，每链10发榴弹。不占用背包位。" }),
 ];
 
 export const WEAPON_BY_ID: Record<string, WeaponDef> = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
@@ -154,7 +151,7 @@ export const CATEGORIES: CatInfo[] = [
   { id: "special", name: "特殊武器", slot: 1, locked: true, desc: "预留位置 · 敬请期待" },
   { id: "pistol", name: "远程武器 (手枪)", slot: 2, desc: "半自动 · 切枪迅速" },
   { id: "melee", name: "近战武器", slot: 2, desc: "无需弹药 · 近距离致命" },
-  { id: "heavy", name: "重武器", slot: 3, desc: "RPG / 重机枪（重型，持握移速 75%）· 榴弹发射器（轻型，无惩罚）" },
+  { id: "heavy", name: "重武器", slot: 3, desc: "RPG / 重机枪（占用背包位，无移速惩罚）· 榴弹发射器（不占用背包位）" },
 ];
 
 export function weaponsOfCat(cat: Cat): WeaponDef[] {
@@ -165,15 +162,25 @@ export interface Loadout {
   primary: string;
   secondary: string;
   heavy: string;
+  grenade: string;
+  backpack: string;
 }
 
-export const DEFAULT_LOADOUT: Loadout = { primary: "m4a1", secondary: "m1911", heavy: "rpg" };
+export const DEFAULT_LOADOUT: Loadout = {
+  primary: "m4a1",
+  secondary: "m1911",
+  heavy: "rpg",
+  grenade: DEFAULT_GRENADE,
+  backpack: DEFAULT_BACKPACK,
+};
 
 export function sanitizeLoadout(l: Partial<Loadout> | null | undefined): Loadout {
   const p = l?.primary && WEAPON_BY_ID[l.primary]?.slot === 1 ? l.primary : DEFAULT_LOADOUT.primary;
   const s = l?.secondary && WEAPON_BY_ID[l.secondary]?.slot === 2 ? l.secondary : DEFAULT_LOADOUT.secondary;
   const h = l?.heavy && WEAPON_BY_ID[l.heavy]?.slot === 3 ? l.heavy : DEFAULT_LOADOUT.heavy;
-  return { primary: p, secondary: s, heavy: h };
+  const g = l?.grenade && GRENADE_BY_ID[l.grenade] ? l.grenade : DEFAULT_LOADOUT.grenade;
+  const b = l?.backpack && BACKPACK_BY_ID[l.backpack] ? l.backpack : DEFAULT_LOADOUT.backpack;
+  return { primary: p, secondary: s, heavy: h, grenade: g, backpack: b };
 }
 
 export const TEAM_COLORS = [0xe74c3c, 0x3b82f6, 0x22c55e, 0xeab308];

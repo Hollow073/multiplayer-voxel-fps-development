@@ -49,6 +49,28 @@ export interface WeaponHud {
   reloading: boolean;
   melee: boolean;
 }
+export interface GrenadeHud {
+  id: string;
+  name: string;
+  kind: string;
+  count: number;
+  maxCount: number;
+  fuse: number;
+  maxFuse: number;
+  holding: boolean;
+}
+export interface BackpackHud {
+  id: string;
+  name: string;
+  kind: string;
+  charges: number;
+  maxCharges: number;
+  cd: number;
+  ready: boolean;
+  occupied: boolean;
+  ammo: string;
+  state: string;
+}
 export interface FeedItem {
   id: number;
   t: number;
@@ -121,4 +143,10 @@ export interface HudState {
   protect: boolean;
   protectT: number;
   isHost: boolean;
+  grenade: GrenadeHud;
+  backpack: BackpackHud;
+  burning: number;
+  blind: number;
+  inSmoke: boolean;
+  notice: string;
 }
