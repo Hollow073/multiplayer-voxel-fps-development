@@ -89,12 +89,9 @@ export default function GameView({ cfg, onExit, onLoadoutChange }: { cfg: GameCo
     <div className="fixed inset-0 bg-black select-none overflow-hidden">
       <div ref={wrap} className="absolute inset-0" />
 
-      {/* 状态画面：白屏 / 烟雾（位于 3D 层之上、所有 UI 之下，保证 UI 始终正常） */}
+      {/* 闪光白屏（位于 3D 层之上、所有 UI 之下，保证 UI 始终正常） */}
       {h && h.blind > 0.01 && (
         <div className="absolute inset-0 pointer-events-none bg-white" style={{ opacity: h.blind }} />
-      )}
-      {h && h.inSmoke && (
-        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(circle at center, rgba(205,214,219,0.18), rgba(185,194,200,0.72) 72%)" }} />
       )}
 
       {/* 小地图 */}
@@ -342,7 +339,7 @@ export default function GameView({ cfg, onExit, onLoadoutChange }: { cfg: GameCo
           {/* 烟雾中 */}
           {h.inSmoke && (
             <div className="absolute left-1/2 top-16 -translate-x-1/2 pointer-events-none px-3 py-1 rounded bg-slate-400/25 border border-white/40 text-white text-xs font-black">
-              烟雾中 · 能见度 0.5m
+              烟雾中 · 无法透视
             </div>
           )}
 

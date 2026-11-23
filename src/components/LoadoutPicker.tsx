@@ -83,7 +83,7 @@ function GrenadeCard({ g, active, onClick }: { g: GrenadeDef; active: boolean; o
 function BackpackCard({ b, active, onClick, occupied }: { b: BackpackDef; active: boolean; onClick: () => void; occupied: boolean }) {
   const stat = b.kind === "supply" ? `${b.charges} 个补给 · 恢复备弹 / 回血 +2`
     : b.kind === "jet" ? `上升约 5m · 悬浮 4s · ${b.cd}s 冷却`
-      : b.kind === "teleport" ? `跃迁约 4m · 可穿越障碍 · ${b.cd}s 冷却`
+      : b.kind === "teleport" ? `跃迁约 20m · 可穿越障碍 · ${b.cd}s 冷却`
         : b.desc;
   return (
     <button

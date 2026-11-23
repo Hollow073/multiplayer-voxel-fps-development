@@ -29,6 +29,7 @@ export interface Ent {
   alive: boolean;
   speed: number;
   wpn: number;
+  pack: string;
   tx: number;
   ty: number;
   tz: number;

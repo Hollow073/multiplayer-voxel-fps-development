@@ -94,6 +94,13 @@ export function sfx(name: Sfx, vol = 1) {
     case "heal": tone(500, 0.3, 0.2 * v, "sine", 900); break;
     case "empty": tone(300, 0.04, 0.2 * v, "square"); break;
     case "switch": burst(0.06, 3000, 1.5, 0.3 * v, "bandpass"); break;
-    case "flash": tone(2600, 0.5, 0.5 * v, "sine", 240); burst(0.35, 6000, 0.8, 0.5 * v, "highpass"); break;
+    case "flash":
+      // 真实闪光弹：高频爆裂声 + 低频冲击波 + 持续耳鸣，而不是单一“玩具”音调
+      burst(0.09, 9000, 0.6, 0.95 * v, "highpass", 150);
+      burst(0.75, 850, 0.5, 1.0 * v, "lowpass", 55);
+      setTimeout(() => tone(3600, 1.1, 0.12 * v, "sine", 2400), 25);
+      setTimeout(() => tone(5400, 0.8, 0.05 * v, "sine", 5200), 45);
+      setTimeout(() => burst(0.35, 1400, 0.4, 0.3 * v, "lowpass", 60), 90);
+      break;
   }
 }
