@@ -334,26 +334,85 @@ export function makeAvatar(k: AvatarKind): Avatar {
   return a;
 }
 
-// RPG / 重机枪占用背包位：在其他玩家背上显示火箭弹背包 / 弹链背包
-export function setAvatarPack(a: Avatar, heavyId: string) {
-  const kind = heavyId === "rpg" ? "rpg" : heavyId === "hmg" ? "hmg" : "";
+// 背包模型：每个功能性背包与 RPG/重机枪弹药背包都有独立外观
+export function setAvatarPack(a: Avatar, packId: string) {
+  const kind =
+    packId === "supply" || packId === "jet" || packId === "teleport" || packId === "ammo_rpg" || packId === "ammo_hmg"
+      ? packId
+      : "";
   if (a.packId === kind) return;
   a.packId = kind;
   while (a.pack.children.length) a.pack.remove(a.pack.children[0]);
   if (!kind) return;
-  bx(0.52, 0.56, 0.2, 0, 1.06, 0.27, 0x3a4030, a.pack);
-  bx(0.54, 0.08, 0.22, 0, 1.36, 0.27, 0x262b22, a.pack);
-  if (kind === "rpg") {
+
+  const mat = (color: number, emissive = 0) => new THREE.MeshLambertMaterial({ color, emissive });
+  const cyl = (r: number, h: number, x: number, y: number, z: number, color: number, parent: THREE.Object3D, emissive = 0) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 10), mat(color, emissive));
+    m.position.set(x, y, z);
+    parent.add(m);
+    return m;
+  };
+
+  if (kind === "supply") {
+    // 补给背包：军绿主包 + 三个弹药袋 + 医疗十字
+    bx(0.52, 0.56, 0.2, 0, 1.06, 0.27, 0x4a5d3a, a.pack);
+    bx(0.54, 0.1, 0.22, 0, 1.36, 0.27, 0x2f3d26, a.pack);
+    bx(0.5, 0.07, 0.06, 0, 0.78, 0.36, 0x2b2b2b, a.pack);
+    for (let i = -1; i <= 1; i++) {
+      bx(0.13, 0.15, 0.1, i * 0.15, 0.94, 0.39, 0x7a6a45, a.pack);
+      bx(0.12, 0.03, 0.02, i * 0.15, 1.01, 0.445, 0xd8c7a6, a.pack);
+    }
+    bx(0.17, 0.055, 0.02, 0, 1.18, 0.39, 0xe74c3c, a.pack);
+    bx(0.055, 0.17, 0.02, 0, 1.18, 0.39, 0xe74c3c, a.pack);
+    cyl(0.055, 0.3, 0.31, 1.0, 0.3, 0x8d9a6a, a.pack);
+  } else if (kind === "jet") {
+    // 喷射背包：双筒推进器 + 蓝色喷口
+    bx(0.4, 0.48, 0.16, 0, 1.06, 0.27, 0x37474f, a.pack);
+    bx(0.46, 0.1, 0.2, 0, 1.34, 0.27, 0x263238, a.pack);
+    for (const x of [-0.19, 0.19]) {
+      cyl(0.11, 0.52, x, 1.07, 0.34, 0x546e7a, a.pack, 0x0b2734);
+      cyl(0.125, 0.09, x, 0.8, 0.34, 0x1f2a30, a.pack);
+      const glow = bx(0.035, 0.4, 0.02, x, 1.07, 0.405, 0x38bdf8, a.pack);
+      glow.material = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+      const nozzle = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.16, 8), mat(0x263238));
+      nozzle.position.set(x, 0.71, 0.34);
+      nozzle.rotation.x = Math.PI;
+      a.pack.add(nozzle);
+    }
+    bx(0.3, 0.06, 0.06, 0, 1.42, 0.27, 0x90a4ae, a.pack);
+  } else if (kind === "teleport") {
+    // 传送背包：深紫能量核心 + 双环线圈
+    bx(0.46, 0.5, 0.16, 0, 1.06, 0.27, 0x3b3352, a.pack);
+    bx(0.5, 0.08, 0.2, 0, 1.34, 0.27, 0x241f33, a.pack);
+    for (const y of [0.94, 1.18]) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.022, 6, 18), new THREE.MeshBasicMaterial({ color: 0xa78bfa }));
+      ring.position.set(0, y, 0.39);
+      a.pack.add(ring);
+    }
+    bx(0.12, 0.2, 0.05, 0, 1.06, 0.39, 0x7c3aed, a.pack);
+    const core = bx(0.07, 0.07, 0.03, 0, 1.06, 0.43, 0xe9d5ff, a.pack);
+    core.material = new THREE.MeshBasicMaterial({ color: 0xe9d5ff });
+    for (const x of [-0.28, 0.28]) cyl(0.035, 0.34, x, 1.05, 0.31, 0x6d5a8a, a.pack);
+    bx(0.03, 0.22, 0.03, 0.2, 1.44, 0.29, 0x9f7aea, a.pack);
+  } else if (kind === "ammo_rpg") {
+    // 火箭弹背包：三枚 RPG 弹头
+    bx(0.52, 0.56, 0.2, 0, 1.06, 0.27, 0x3a4030, a.pack);
+    bx(0.54, 0.08, 0.22, 0, 1.36, 0.27, 0x262b22, a.pack);
     for (let i = 0; i < 3; i++) {
       const x = (i - 1) * 0.15;
       bx(0.11, 0.11, 0.62, x, 1.12, 0.27, 0x5a6b45, a.pack);
       bx(0.12, 0.12, 0.1, x, 1.12, 0.57, 0xc0392b, a.pack);
     }
+    bx(0.5, 0.06, 0.06, 0, 0.88, 0.37, 0x8a6a18, a.pack);
   } else {
+    // 重机枪弹链背包
+    bx(0.52, 0.56, 0.2, 0, 1.06, 0.27, 0x3a4030, a.pack);
+    bx(0.54, 0.08, 0.22, 0, 1.36, 0.27, 0x262b22, a.pack);
     for (let i = 0; i < 7; i++) {
       bx(0.05, 0.09, 0.05, -0.21 + i * 0.07, 0.86, 0.39, 0xc9a227, a.pack);
     }
     bx(0.5, 0.08, 0.06, 0, 0.93, 0.39, 0x8a6a18, a.pack);
+    bx(0.14, 0.2, 0.08, 0.25, 1.16, 0.37, 0x5a4a2a, a.pack);
   }
 }
 

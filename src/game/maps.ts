@@ -37,8 +37,8 @@ export const MAP_LIST: MapInfo[] = [
   { id: "ffa-snow", name: "雪域四境", desc: "白雪覆盖的森林战场，树木与矮墙构成复杂掩体。", type: "ffa", hx: 60, hz: 60, sky: 0xc9dff0, fog: 0xe3eef7, tag: "四方混战" },
   { id: "ffa-oasis", name: "绿洲聚落", desc: "沙漠绿洲的四方争夺，密集的单层土屋与木箱。", type: "ffa", hx: 60, hz: 60, sky: 0xffd9a0, fog: 0xf2dcae, tag: "四方混战" },
   { id: "ffa-factory", name: "废弃工厂", desc: "集装箱与厂房构成的工业区，近距离交火频繁。", type: "ffa", hx: 60, hz: 60, sky: 0x9fb4c7, fog: 0xb3c2cf, tag: "四方混战" },
-  { id: "ffa-manor", name: "庄园街区", desc: "以民居为主的四队战场：中央四层塔楼带螺旋楼梯与窗户，四角双层民居内出生。", type: "ffa", hx: 60, hz: 60, sky: 0x8fd0ff, fog: 0xbfe3ff, tag: "四方混战" },
-  { id: "ffa-villa", name: "沙丘庄园", desc: "沙漠中的民居聚落，中央四层塔楼控制全场，四角双层土屋提供出生点。", type: "ffa", hx: 60, hz: 60, sky: 0xffd9a0, fog: 0xf2dcae, tag: "四方混战" },
+  { id: "ffa-manor", name: "庄园街区", desc: "以民居为主的四队战场：中央三层主楼每层六窗、直跑楼梯上屋顶，四角圆形螺旋塔带露天环台与锥形塔尖。", type: "ffa", hx: 60, hz: 60, sky: 0x8fd0ff, fog: 0xbfe3ff, tag: "四方混战" },
+  { id: "ffa-villa", name: "沙丘庄园", desc: "沙漠中的民居聚落：中央三层主楼每层六窗、直跑楼梯上屋顶，四角圆形螺旋塔带露天环台与锥形塔尖，可登顶俯瞰战场。", type: "ffa", hx: 60, hz: 60, sky: 0xffd9a0, fog: 0xf2dcae, tag: "四方混战" },
   { id: "def-outpost", name: "孤岛据点", desc: "中央据点由环形民居与掩体构成，敌人从四个角落涌来。", type: "defense", hx: 56, hz: 56, sky: 0xffd9a0, fog: 0xf2dcae, tag: "据点防守" },
   { id: "def-frost", name: "霜冻要塞", desc: "雪原上的圆形堡垒，大量障碍和一至两层房屋。", type: "defense", hx: 56, hz: 56, sky: 0xc9dff0, fog: 0xe3eef7, tag: "据点防守" },
 ];
@@ -552,78 +552,180 @@ function buildDefense(info: MapInfo): MapData {
   return { ...info, boxes: b.boxes, spawns: [def], enemySpawns: enemy, defSpawns: def };
 }
 
-// ───────────────────────── 民居庄园 (中央四层塔楼) ─────────────────────────
-// 中央塔楼：四面墙每层都有窗户，一层四门；内部为绕柱而上的方形螺旋楼梯
-function tower(b: B, cx: number, cz: number) {
+// ───────────────────────── 庄园街区 / 沙丘庄园：中央三层主楼 + 四角圆塔 ─────────────────────────
+// 中央主楼：三层、每层 6 扇窗（南北各 2、东西各 1），正常直跑楼梯上到屋顶。
+function manorKeep(b: B) {
   const th = b.th;
-  const hw = 10;
-  const x0 = cx - hw;
-  const x1 = cx + hw;
-  const z0 = cz - hw;
-  const z1 = cz + hw;
-  const floors = 4;
+  const x0 = -8;
+  const x1 = 8;
+  const z0 = -7;
+  const z1 = 7;
   const hh = FH - SL;
   const wallC = th.walls[0];
   const win = (c: number, half: number): Hole => ({ a: c - half, b: c + half, v0: 0.9, v1: 2.4 });
-  for (let f = 0; f < floors; f++) {
+  for (let f = 0; f < 3; f++) {
     const yb = f * FH;
-    const door: Hole[] = f === 0 ? [{ a: cx - 1.3, b: cx + 1.3, v0: 0, v1: 2.8 }] : [];
-    wallX(b, x0, x1, z0, z0 + WT, yb, hh, [...door, win(cx - 5, 1), win(cx + 5, 1)], wallC);
-    wallX(b, x0, x1, z1 - WT, z1, yb, hh, [...door, win(cx - 5, 1), win(cx + 5, 1)], wallC);
-    wallZ(b, z0 + WT, z1 - WT, x0, x0 + WT, yb, hh, [...door, win(cz - 5, 1), win(cz + 5, 1)], wallC);
-    wallZ(b, z0 + WT, z1 - WT, x1 - WT, x1, yb, hh, [...door, win(cz - 5, 1), win(cz + 5, 1)], wallC);
+    const door: Hole[] = f === 0 ? [{ a: -1.3, b: 1.3, v0: 0, v1: 2.8 }] : [];
+    // 南北各 2 窗，东西各 1 窗 = 每层 6 窗
+    wallX(b, x0, x1, z0, z0 + WT, yb, hh, [win(-4.6, 1.05), win(4.6, 1.05)], wallC);
+    wallX(b, x0, x1, z1 - WT, z1, yb, hh, [...door, win(-4.6, 1.05), win(4.6, 1.05)], wallC);
+    wallZ(b, z0 + WT, z1 - WT, x0, x0 + WT, yb, hh, [win(0, 1.05)], wallC);
+    wallZ(b, z0 + WT, z1 - WT, x1 - WT, x1, yb, hh, [win(0, 1.05)], wallC);
+  }
+  // 正常直跑楼梯：西侧靠墙，从南向北每层上升 8 级
+  const sx0 = -7.4;
+  const sx1 = -5.2;
+  const zStart = 4.6;
+  const zEnd = -1.9;
+  const steps = 8;
+  const rise = FH / steps;
+  const run = (zStart - zEnd) / steps;
+  for (let f = 0; f < 3; f++) {
+    const base = f * FH;
+    for (let j = 0; j < steps; j++) {
+      const zA = zStart - j * run;
+      const zB = zA - run;
+      const top = base + (j + 1) * rise;
+      // 只做一级踏板厚度，避免上一层楼梯的实体把下一层楼梯的头部空间堵死
+      b.box(sx0, Math.max(0, top - 0.45), zB, sx1, top, zA, th.step);
+    }
+  }
+  // 楼板 / 屋顶在楼梯上方留洞，保证正常通行（洞口略宽于楼梯）
+  const hole = [sx0 - 0.55, zEnd - 0.15, sx1 + 0.55, zStart + 0.45];
+  for (let f = 1; f <= 3; f++) {
+    const y = f * FH;
+    slab(b, x0, z0, x1, z1, y - SL, y, hole, f === 3 ? th.roofs[0] : th.floor);
+  }
+  // 屋顶女儿墙
+  const ry = 3 * FH;
+  b.box(x0, ry, z0, x1, ry + 0.65, z0 + 0.4, th.roofs[0]);
+  b.box(x0, ry, z1 - 0.4, x1, ry + 0.65, z1, th.roofs[0]);
+  b.box(x0, ry, z0 + 0.4, x0 + 0.4, ry + 0.65, z1 - 0.4, th.roofs[0]);
+  b.box(x1 - 0.4, ry, z0 + 0.4, x1, ry + 0.65, z1 - 0.4, th.roofs[0]);
+  // 屋顶楼梯口小围栏
+  b.box(sx0 - 0.15, ry, zEnd - 0.15, sx0, ry + 0.5, zStart + 0.35, th.roofs[0]);
+  b.box(sx1, ry, zEnd - 0.15, sx1 + 0.15, ry + 0.5, zStart + 0.35, th.roofs[0]);
+  b.box(sx0 - 0.15, ry, zEnd - 0.15, sx1 + 0.15, ry + 0.5, zEnd, th.roofs[0]);
+  b.occupy(x0, z0, x1, z1);
+}
+
+// 圆环扇区：用方块拼出圆环平台 / 圆形围墙；skipSeg 可留出入口
+function ringSectors(b: B, cx: number, cz: number, rIn: number, rOut: number, y0: number, y1: number, c: number, segments: number, skipSeg = -1, skipSpan = 0) {
+  const mid = (rIn + rOut) * 0.5;
+  const thick = rOut - rIn;
+  for (let i = 0; i < segments; i++) {
+    if (skipSeg >= 0) {
+      const d = Math.abs(i - skipSeg);
+      if (Math.min(d, segments - d) <= skipSpan) continue;
+    }
+    const a = ((i + 0.5) / segments) * Math.PI * 2;
+    const px = cx + Math.cos(a) * mid;
+    const pz = cz + Math.sin(a) * mid;
+    const tang = (Math.PI * 2 * mid) / segments * 1.4;
+    const w = tang * Math.abs(Math.cos(a)) + thick * Math.abs(Math.sin(a));
+    const d = tang * Math.abs(Math.sin(a)) + thick * Math.abs(Math.cos(a));
+    b.box(px - w / 2, y0, pz - d / 2, px + w / 2, y1, pz + d / 2, c);
+  }
+}
+
+// 用小块拼出精确的圆环平台，避免大扇区 AABB 盖住下方的螺旋楼梯
+function ringGrid(b: B, cx: number, cz: number, rIn: number, rOut: number, y0: number, y1: number, c: number, segments: number, layers: number) {
+  const dr = (rOut - rIn) / layers;
+  for (let j = 0; j < layers; j++) {
+    const r = rIn + (j + 0.5) * dr;
+    const arc = (Math.PI * 2 * r) / segments * 1.25;
+    for (let i = 0; i < segments; i++) {
+      const a = ((i + 0.5) / segments) * Math.PI * 2;
+      const px = cx + Math.cos(a) * r;
+      const pz = cz + Math.sin(a) * r;
+      b.box(px - arc / 2, y0, pz - arc / 2, px + arc / 2, y1, pz + arc / 2, c);
+    }
+  }
+}
+
+// 四角圆塔：圆形地基、圆形螺旋楼梯（16 级一圈，直上顶层）、外墙窗户、露天环台与圆锥塔尖
+function cornerTower(b: B, cx: number, cz: number, sx: number, sz: number) {
+  const th = b.th;
+  const SEG = 32;
+  const R = 5.7;
+  const H = 14.4;
+  const levels = 4;
+  const doorAng = Math.atan2(sz, sx);
+  // 让 0 号墙段正好以大门方向为中心，保证门洞与玩家进入方向对齐
+  const doorSeg = 0;
+  // 圆形地基
+  b.box(cx - 3.7, 0, cz - 3.7, cx + 3.7, 0.25, cz + 3.7, th.coreTop);
+  ringSectors(b, cx, cz, 3.2, 5.75, 0, 0.3, th.coreTop, SEG);
+  // 圆形外墙：每层留出一圈窗洞，底层在朝外方向开门
+  for (let i = 0; i < SEG; i++) {
+    const a = doorAng + ((i + 0.5) / SEG) * Math.PI * 2;
+    const px = cx + Math.cos(a) * R;
+    const pz = cz + Math.sin(a) * R;
+    const tang = (Math.PI * 2 * R) / SEG * 1.38;
+    const w = tang * Math.abs(Math.cos(a)) + 0.46 * Math.abs(Math.sin(a));
+    const d = tang * Math.abs(Math.sin(a)) + 0.46 * Math.abs(Math.cos(a));
+    for (let f = 0; f < levels; f++) {
+      const yb = f * FH;
+      const door = f === 0 && (i === doorSeg || i === (doorSeg + 1) % SEG || i === (doorSeg + SEG - 1) % SEG);
+      if (f === levels - 1) {
+        // 顶层是露天环形观景台，只保留 1m 高女儿墙
+        b.box(px - w / 2, yb, pz - d / 2, px + w / 2, yb + 1.0, pz + d / 2, th.core);
+      } else if (door) {
+        b.box(px - w / 2, yb + 2.8, pz - d / 2, px + w / 2, yb + FH, pz + d / 2, th.core);
+      } else {
+        b.box(px - w / 2, yb, pz - d / 2, px + w / 2, yb + 0.9, pz + d / 2, th.core);
+        b.box(px - w / 2, yb + 2.4, pz - d / 2, px + w / 2, yb + FH, pz + d / 2, th.core);
+      }
+    }
   }
   // 中央承重柱
-  b.box(cx - 1.5, 0, cz - 1.5, cx + 1.5, floors * FH, cz + 1.5, th.core);
-  // 方形螺旋楼梯：四条边首尾重叠，16 级上升一层，保证连续可走
-  const R = 8.2; // 楼梯环中心到塔中心
-  const inner = 5.8;
-  const per = 4;
-  const total = floors * per * 4;
-  const rise = FH / (per * 4);
-  const seg = 14 / per; // 每条边 14 宽，4 级
+  b.box(cx - 1.2, 0, cz - 1.2, cx + 1.2, H, cz + 1.2, th.core);
+  // 圆形螺旋楼梯：16 级一圈、36 级绕中心柱上升 14.4m
+  // 台阶沿圆周布置且径向较窄，避免 AABB 在转角处互相堵住通行空间。
+  const total = 36;
+  const perTurn = 16;
+  const rise = H / total;
+  const angStep = (Math.PI * 2) / perTurn;
+  const start = doorAng + 0.4;
   for (let k = 0; k < total; k++) {
-    const side = Math.floor(k / per) % 4;
-    const idx = k % per;
     const top = (k + 1) * rise;
-    let bx0: number, bx1: number, bz0: number, bz1: number;
-    if (side === 0) {
-      // 北边：由西向东上升
-      bx0 = cx - 7 + idx * seg;
-      bx1 = bx0 + seg;
-      bz0 = cz - R;
-      bz1 = cz - inner;
-    } else if (side === 1) {
-      // 东边：由北向南上升
-      bz0 = cz - 7 + idx * seg;
-      bz1 = bz0 + seg;
-      bx0 = cx + inner;
-      bx1 = cx + R;
-    } else if (side === 2) {
-      // 南边：由东向西上升
-      bx1 = cx + 7 - idx * seg;
-      bx0 = bx1 - seg;
-      bz0 = cz + inner;
-      bz1 = cz + R;
-    } else {
-      // 西边：由南向北上升
-      bz1 = cz + 7 - idx * seg;
-      bz0 = bz1 - seg;
-      bx0 = cx - R;
-      bx1 = cx - inner;
-    }
-    // 每级高 0.45，顶部相差 0.225（< 可跨越高度），转角处互相重叠
-    b.box(bx0, Math.max(0, top - 0.45), bz0, bx1, top, bz1, th.step);
+    const a = start + k * angStep;
+    const midR = k === total - 1 ? 3.4 : 2.9;
+    const radial = 0.5;
+    const tang = 1.16;
+    const px = cx + Math.cos(a) * midR;
+    const pz = cz + Math.sin(a) * midR;
+    const w = radial * Math.abs(Math.cos(a)) + tang * Math.abs(Math.sin(a));
+    const d = radial * Math.abs(Math.sin(a)) + tang * Math.abs(Math.cos(a));
+    b.box(px - w / 2, Math.max(0, top - 0.45), pz - d / 2, px + w / 2, top, pz + d / 2, th.step);
   }
-  // 屋顶平台（中央 12.4×12.4），与楼梯环内缘搭接，四周留出上人空间
-  const ry = floors * FH;
-  b.box(cx - 6.2, ry - SL, cz - 6.2, cx + 6.2, ry, cz + 6.2, th.roofs[0]);
-  // 女儿墙
-  b.box(x0, ry, z0, x1, ry + 0.6, z0 + 0.4, th.roofs[0]);
-  b.box(x0, ry, z1 - 0.4, x1, ry + 0.6, z1, th.roofs[0]);
-  b.box(x0, ry, z0 + 0.4, x0 + 0.4, ry + 0.6, z1 - 0.4, th.roofs[0]);
-  b.box(x1 - 0.4, ry, z0 + 0.4, x1, ry + 0.6, z1 - 0.4, th.roofs[0]);
-  b.occupy(x0, z0, x1, z1);
+  // 顶层露天环台：小块拼成的外圈走道，不覆盖下方螺旋楼梯
+  ringGrid(b, cx, cz, 3.9, 5.5, H, H + 0.22, th.coreTop, 64, 3);
+  ringGrid(b, cx, cz, 3.95, 5.4, H + 0.22, H + 0.34, th.coreTop, 64, 3);
+  ringGrid(b, cx, cz, 5.45, 5.65, H + 0.34, H + 1.0, th.core, 64, 1);
+  // 中央柱把塔尖抬到头顶以上，避免挡住最后几级台阶
+  const spireBase = H + 2.05;
+  b.box(cx - 1.1, H, cz - 1.1, cx + 1.1, spireBase, cz + 1.1, th.coreTop);
+  // 圆锥形塔尖（方块堆叠近似圆锥）
+  b.box(cx - 1.8, spireBase, cz - 1.8, cx + 1.8, spireBase + 0.54, cz + 1.8, th.coreTop);
+  const layers = 10;
+  for (let i = 0; i < layers; i++) {
+    const y = spireBase + 0.54 + i * 0.55;
+    const r = Math.max(0.18, 3.0 * (1 - i / layers) + 0.18);
+    const n = 16;
+    for (let j = 0; j < n; j++) {
+      const a = (j / n) * Math.PI * 2;
+      const px = cx + Math.cos(a) * r * 0.8;
+      const pz = cz + Math.sin(a) * r * 0.8;
+      const tang = (Math.PI * 2 * r) / n * 1.5;
+      const w = tang * Math.abs(Math.cos(a)) + 0.36 * Math.abs(Math.sin(a));
+      const d = tang * Math.abs(Math.sin(a)) + 0.36 * Math.abs(Math.cos(a));
+      b.box(px - w / 2, y, pz - d / 2, px + w / 2, y + 0.62, pz + d / 2, th.roofs[0]);
+    }
+    b.box(cx - r * 0.5, y, cz - r * 0.5, cx + r * 0.5, y + 0.62, cz + r * 0.5, th.roofs[0]);
+  }
+  b.box(cx - 0.08, spireBase + 0.54 + layers * 0.55, cz - 0.08, cx + 0.08, spireBase + 1.44 + layers * 0.55, cz + 0.08, 0xd8c7a6);
+  b.occupy(cx - 6.1, cz - 6.1, cx + 6.1, cz + 6.1);
 }
 
 function buildManor(info: MapInfo): MapData {
@@ -632,7 +734,12 @@ function buildManor(info: MapInfo): MapData {
   const b = new B(th, rng(desert ? 91 : 83));
   const hx = info.hx;
   base(b, hx, hx, true);
-  tower(b, 0, 0);
+  manorKeep(b);
+  cornerTower(b, -13.0, -11.5, -1, -1);
+  cornerTower(b, 13.0, -11.5, 1, -1);
+  cornerTower(b, -13.0, 11.5, -1, 1);
+  cornerTower(b, 13.0, 11.5, 1, 1);
+  b.occupy(-19.5, -18.0, 19.5, 18.0);
   const q0 = b.boxes.length;
   // 四角双层民居（出生点在里面）
   house(b, { x: -58, z: -58, w: 16, d: 14, floors: 2, doors: "es", winFloors: [0, 1], wall: b.pick(th.walls), roof: b.pick(th.roofs) });

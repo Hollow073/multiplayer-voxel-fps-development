@@ -118,7 +118,7 @@ export class Bot {
     this.ent = {
       id, name, team, isBot: true, kind,
       x: 0, y: 0, z: 0, yaw: 0, pitch: 0, stance: 0, scale: this.cfg.scale,
-      hp, maxHp: hp, alive: false, speed: 0, wpn: WEAPON_INDEX[wpn] ?? 0,
+      hp, maxHp: hp, alive: false, speed: 0, wpn: WEAPON_INDEX[wpn] ?? 0, pack: "",
       tx: 0, ty: 0, tz: 0, tyaw: 0, av: null, phase: 0, upd: 0,
     };
   }

@@ -27,7 +27,7 @@ export const GRENADES: GrenadeDef[] = [
     name: "高爆手雷",
     en: "HE Grenade",
     damage: 70,
-    radius: 6,
+    radius: 12, // 直径约 24m；一半半径内满伤，向外线性衰减
     fuse: 3,
     duration: 0,
     burnTime: 0,
@@ -35,7 +35,7 @@ export const GRENADES: GrenadeDef[] = [
     blindTime: 0,
     color: 0x3f4a32,
     accent: 0xd97706,
-    desc: "球形爆炸范围，范围内造成 70 点爆炸伤害。",
+    desc: "24m 直径球形爆炸：中心 6m 内 70 点满伤，向外逐渐衰减至 0。",
   },
   {
     id: "smoke",
@@ -43,7 +43,7 @@ export const GRENADES: GrenadeDef[] = [
     name: "烟雾弹",
     en: "Smoke Grenade",
     damage: 0,
-    radius: 4, // 直径约 8m
+    radius: 16, // 直径约 32m
     fuse: 2.5,
     duration: 10,
     burnTime: 0,
@@ -51,7 +51,7 @@ export const GRENADES: GrenadeDef[] = [
     blindTime: 0,
     color: 0x59636b,
     accent: 0xbfc8cf,
-    desc: "释放 8m 直径的球形烟雾，持续 10s；烟中角色能见度仅 0.5m，无伤害。",
+    desc: "释放 32m 直径的浓密烟雾，持续 10s；无论身处烟雾内外都无法透视，无伤害。",
   },
   {
     id: "incendiary",
@@ -59,7 +59,7 @@ export const GRENADES: GrenadeDef[] = [
     name: "燃烧弹",
     en: "Incendiary",
     damage: 0,
-    radius: 2, // 直径约 4m
+    radius: 6, // 直径约 12m
     fuse: 3,
     duration: 7,
     burnTime: 4,
@@ -67,7 +67,7 @@ export const GRENADES: GrenadeDef[] = [
     blindTime: 0,
     color: 0x7a2a12,
     accent: 0xff7a1a,
-    desc: "在地面形成直径 4m 的燃烧区，踩在上面的角色燃烧 4s，每秒 10 点伤害，停留会刷新。",
+    desc: "在地面形成直径 12m 的燃烧区，踩在上面的角色燃烧 4s，每秒 10 点伤害，停留会刷新。",
   },
   {
     id: "flash",
@@ -75,7 +75,7 @@ export const GRENADES: GrenadeDef[] = [
     name: "闪光弹",
     en: "Flashbang",
     damage: 0,
-    radius: 5, // 直径 10m
+    radius: 30, // 直径 60m
     fuse: 2,
     duration: 0,
     burnTime: 0,
@@ -83,7 +83,7 @@ export const GRENADES: GrenadeDef[] = [
     blindTime: 3,
     color: 0x8a8f96,
     accent: 0xfff7cc,
-    desc: "爆炸后 10m 直径内、视角中能看到闪光弹的角色致盲 3s（仅白屏，UI 正常），无伤害。",
+    desc: "爆炸后 60m 直径内、视角中能看到闪光弹的角色致盲 3s（仅白屏，UI 正常），无伤害。",
   },
 ];
 
@@ -148,7 +148,7 @@ export const BACKPACKS: BackpackDef[] = [
     cd: 15,
     color: 0x3b3352,
     accent: 0xa78bfa,
-    desc: "按 E 沿视角方向跃迁约 4m，可穿越障碍；会自动寻找不会卡墙的落点。15s 冷却。",
+    desc: "按 E 沿视角方向跃迁约 20m，可穿越障碍；会自动寻找不会卡墙的落点。15s 冷却。",
   },
 ];
 
@@ -193,4 +193,4 @@ export function resolveBackpack(heavyId: string, chosenId: string | null | undef
 
 export const JET_RISE = 5; // m
 export const JET_HOVER = 4; // s
-export const TELEPORT_DIST = 4; // m
+export const TELEPORT_DIST = 20; // m

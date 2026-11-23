@@ -54,6 +54,7 @@ interface SmokeZone {
   max: number;
   group: THREE.Group;
   mats: THREE.MeshBasicMaterial[];
+  baseOpacity: number[];
 }
 interface FireZone {
   x: number;
@@ -91,10 +92,12 @@ const EYES = [1.65, 1.15, 0.5];
 const PROTECT_TIME = 4;
 // 手雷 / 背包参数
 const BURN_TICK = 0.5; // 燃烧状态每 0.5s 结算一次伤害
-const SMOKE_FOG_NEAR = 0.5; // 烟中能见度约 0.5m
-const SMOKE_FOG_FAR = 1.25;
-const SMOKE_COLOR = 0xb9c2c8;
+const SMOKE_COLOR = 0xcfd6da;
 const NADE_THROW_SPEED = 15;
+// 手雷弹道：降低重力与空气阻力，使同角度投掷距离约为旧参数的 3 倍以上
+const NADE_GRAVITY = 4.5;
+const NADE_DRAG = 0.06; // 每秒速度衰减系数（指数）
+const NADE_UP = 3.2;
 
 // 背包效果提示 / 状态文字
 function fmtCd(v: number) {
@@ -380,7 +383,7 @@ export class Game {
     this.initScene();
     this.selfEnt = {
       id: this.cfg.pid, name: this.cfg.name, team: this.team, isBot: false, kind: "human",
-      x: 0, y: 0, z: 0, yaw: 0, pitch: 0, stance: 0, scale: 1, hp: 100, maxHp: 100, alive: false, speed: 0, wpn: 0,
+      x: 0, y: 0, z: 0, yaw: 0, pitch: 0, stance: 0, scale: 1, hp: 100, maxHp: 100, alive: false, speed: 0, wpn: 0, pack: "",
       tx: 0, ty: 0, tz: 0, tyaw: 0, av: null, phase: 0, upd: 0,
     };
     this.miniBase = renderMapCanvas(this.map, 220, false);
@@ -551,7 +554,7 @@ export class Game {
     const info = this.players.get(id);
     const e: Ent = {
       id, name: info?.name ?? (isBot ? "BOT" : "玩家"), team: info?.team ?? 0, isBot, kind: isBot ? "dm" : "human",
-      x: 0, y: 0, z: 0, yaw: 0, pitch: 0, stance: 0, scale: 1, hp: 100, maxHp: 100, alive: false, speed: 0, wpn: 0,
+      x: 0, y: 0, z: 0, yaw: 0, pitch: 0, stance: 0, scale: 1, hp: 100, maxHp: 100, alive: false, speed: 0, wpn: 0, pack: "",
       tx: 0, ty: 0, tz: 0, tyaw: 0, av: null, phase: 0, upd: this.time,
     };
     this.ents.set(id, e);
@@ -582,6 +585,7 @@ export class Game {
     e.pitch = m.pt;
     e.stance = m.s;
     e.wpn = m.w;
+    e.pack = typeof m.bp === "string" ? m.bp : "";
     e.hp = m.hp;
     e.speed = m.sp;
     e.upd = this.time;
@@ -598,7 +602,7 @@ export class Game {
     if (this.isHost) return;
     const seen = new Set<string>();
     for (const b of list) {
-      const [id, x, y, z, yaw, pitch, stance, hp, al, wpn, sp, kind, team, name] = b;
+      const [id, x, y, z, yaw, pitch, stance, hp, al, wpn, sp, kind, team, name, pack] = b;
       seen.add(id);
       let e = this.ents.get(id);
       if (!e) {
@@ -617,6 +621,7 @@ export class Game {
       e.stance = stance;
       e.hp = hp;
       e.wpn = wpn;
+      e.pack = typeof pack === "string" ? pack : "";
       e.speed = sp;
       e.upd = this.time;
       if (al && !wasAlive) {
@@ -653,7 +658,8 @@ export class Game {
         av.group.rotation.y = e.yaw;
         const curDef = WEAPONS[e.wpn] ?? WEAPONS[0];
         setAvatarWeapon(av, curDef);
-        setAvatarPack(av, curDef.id);
+        const packId = e.pack || (curDef.id === "rpg" ? "ammo_rpg" : curDef.id === "hmg" ? "ammo_hmg" : "");
+        setAvatarPack(av, packId);
         animateAvatar(av, e.phase, e.speed, e.stance === 3 ? 1 : e.stance, dt, 1, curDef.cat === "melee");
         // 队友名牌
         if (!e.isBot && e.team === this.team && !av.tag) {
@@ -827,7 +833,7 @@ export class Game {
     const b = p.body;
     this.net.state({
       t: "st", x: r2(b.x), y: r2(b.y), z: r2(b.z), yw: r2(p.yaw), pt: r2(p.pitch),
-      s: p.slide > 0 ? 1 : p.stance, w: WEAPON_INDEX[p.w[p.slot]?.def.id ?? "m4a1"], hp: Math.round(p.hp), al: p.alive ? 1 : 0, sp: r2(p.speed),
+      s: p.slide > 0 ? 1 : p.stance, w: WEAPON_INDEX[p.w[p.slot]?.def.id ?? "m4a1"], hp: Math.round(p.hp), al: p.alive ? 1 : 0, sp: r2(p.speed), bp: this.backpackDef().id,
     });
   }
 
@@ -1082,7 +1088,7 @@ export class Game {
     const eye = this.eyePos();
     const { f, u } = this.camBasis();
     const pos = eye.clone().addScaledVector(f, 0.55).addScaledVector(u, -0.08);
-    const vel = f.clone().multiplyScalar(NADE_THROW_SPEED).addScaledVector(u, 2.4);
+    const vel = f.clone().multiplyScalar(NADE_THROW_SPEED).addScaledVector(u, NADE_UP);
     const nudge = this.nudgeOut(pos.x, pos.y, pos.z, f.x, f.y, f.z, 2);
     pos.set(nudge[0], nudge[1], nudge[2]);
     const id = `${this.cfg.pid}-n${this.nadeSeq++}`;
@@ -1122,7 +1128,7 @@ export class Game {
     for (let i = this.nades.length - 1; i >= 0; i--) {
       const n = this.nades[i];
       n.fuse -= dt;
-      n.vel.y -= 22 * dt;
+      n.vel.y -= NADE_GRAVITY * dt;
       const speed = n.vel.length();
       const steps = Math.max(1, Math.min(24, Math.ceil((speed * dt) / 0.08)));
       const h = dt / steps;
@@ -1142,8 +1148,10 @@ export class Game {
         if (this.nadeFits(n.pos.x, n.pos.y, nz)) n.pos.z = nz;
         else n.vel.z *= -0.42;
       }
-      n.vel.x *= 0.996;
-      n.vel.z *= 0.996;
+      // 空气阻力按秒计算，避免不同帧率下投掷距离不一致
+      const drag = Math.exp(-NADE_DRAG * dt);
+      n.vel.x *= drag;
+      n.vel.z *= drag;
       n.mesh.position.copy(n.pos);
       n.mesh.rotation.x += n.vel.z * dt * 3;
       n.mesh.rotation.z -= n.vel.x * dt * 3;
@@ -1168,16 +1176,18 @@ export class Game {
       this.explodeVisual(x, y, z, def.radius);
       const wIdx = grenadeW(GRENADE_INDEX[def.id] ?? 0);
       for (const e of this.hostiles(this.team, false)) {
-        if (this.nadeCovers(x, y, z, def.radius, e.x, e.y, e.z, e.scale || 1)) {
-          this.applyHit(e, def.damage, false, wIdx);
+        const d = this.nadeBlastDist(x, y, z, e.x, e.y, e.z, e.scale || 1);
+        if (this.nadeCovers(x, y, z, def.radius, e.x, e.y, e.z, e.scale || 1, d)) {
+          this.applyHit(e, this.nadeDamage(def, d), false, wIdx);
           this.hitSeq++;
           this.hitHead = false;
           sfx("hit", 0.6);
         }
       }
       const b = this.p.body;
-      if (this.p.alive && this.nadeCovers(x, y, z, def.radius, b.x, b.y, b.z, 1)) {
-        this.damageSelf(def.damage, false, this.cfg.pid, wIdx, x, z);
+      const selfD = this.nadeBlastDist(x, y, z, b.x, b.y, b.z, 1);
+      if (this.p.alive && this.nadeCovers(x, y, z, def.radius, b.x, b.y, b.z, 1, selfD)) {
+        this.damageSelf(this.nadeDamage(def, selfD), false, this.cfg.pid, wIdx, x, z);
       }
     } else if (def.kind === "smoke") {
       this.createSmokeZone(x, y, z, def.radius, def.duration);
@@ -1194,16 +1204,29 @@ export class Game {
     this.evAll({ k: "nadeboom", id: n.id, g: def.id, p: [r2(x), r2(y), r2(z)] });
   }
 
-  // 球形范围：按目标身体离爆心最近的点判断
-  private nadeCovers(bx: number, by: number, bz: number, r: number, ex: number, ey: number, ez: number, scale: number) {
+  // 球形范围：按目标身体离爆心最近的点计算距离
+  private nadeBlastDist(bx: number, by: number, bz: number, ex: number, ey: number, ez: number, scale: number) {
     const hw = 0.34 * scale;
     const h = 1.8 * scale;
     const cx = clamp(bx, ex - hw, ex + hw);
     const cz = clamp(bz, ez - hw, ez + hw);
     const cy = clamp(by, ey, ey + h);
-    const d = Math.hypot(cx - bx, cy - by, cz - bz);
+    return Math.hypot(cx - bx, cy - by, cz - bz);
+  }
+
+  private nadeCovers(bx: number, by: number, bz: number, r: number, ex: number, ey: number, ez: number, scale: number, dist?: number) {
+    const d = dist ?? this.nadeBlastDist(bx, by, bz, ex, ey, ez, scale);
     if (d >= r) return false;
+    const h = 1.8 * scale;
     return this.world.hasLOS(bx, by, bz, ex, ey + h * 0.55, ez) || this.world.hasLOS(bx, by + 0.2, bz, ex, ey + h * 0.25, ez);
+  }
+
+  // 高爆伤害：1/2 半径内 100%，之后线性衰减到边缘的 0
+  private nadeDamage(def: GrenadeDef, dist: number) {
+    const half = def.radius * 0.5;
+    if (dist <= half) return def.damage;
+    const t = clamp(1 - (dist - half) / (def.radius - half), 0, 1);
+    return def.damage * t;
   }
 
   private detonateNadeEffect(def: GrenadeDef, x: number, y: number, z: number, cooked: boolean) {
@@ -1212,16 +1235,18 @@ export class Game {
       this.explodeVisual(bx, by, bz, def.radius);
       const wIdx = grenadeW(GRENADE_INDEX[def.id] ?? 0);
       for (const e of this.hostiles(this.team, false)) {
-        if (this.nadeCovers(bx, by, bz, def.radius, e.x, e.y, e.z, e.scale || 1)) {
-          this.applyHit(e, def.damage, false, wIdx);
+        const d = this.nadeBlastDist(bx, by, bz, e.x, e.y, e.z, e.scale || 1);
+        if (this.nadeCovers(bx, by, bz, def.radius, e.x, e.y, e.z, e.scale || 1, d)) {
+          this.applyHit(e, this.nadeDamage(def, d), false, wIdx);
           this.hitSeq++;
           this.hitHead = false;
         }
       }
       const b = this.p.body;
-      if (this.p.alive && this.nadeCovers(bx, by, bz, def.radius, b.x, b.y, b.z, 1)) {
+      const selfD = this.nadeBlastDist(bx, by, bz, b.x, b.y, b.z, 1);
+      if (this.p.alive && this.nadeCovers(bx, by, bz, def.radius, b.x, b.y, b.z, 1, selfD)) {
         // 手中起爆时保证把自己炸死（普通 70 点不足以击杀满血角色）
-        this.damageSelf(cooked ? 999 : def.damage, false, this.cfg.pid, wIdx, bx, bz);
+        this.damageSelf(cooked ? 999 : this.nadeDamage(def, selfD), false, this.cfg.pid, wIdx, bx, bz);
       }
     } else if (def.kind === "smoke") {
       this.createSmokeZone(bx, by, bz, def.radius, def.duration);
@@ -1273,22 +1298,41 @@ export class Game {
 
   private createSmokeZone(x: number, y: number, z: number, r: number, dur: number) {
     const group = new THREE.Group();
-    const mat = new THREE.MeshBasicMaterial({ color: SMOKE_COLOR, transparent: true, opacity: 0.17, depthWrite: false, fog: false });
-    const geo = new THREE.IcosahedronGeometry(1, 1);
-    for (let i = 0; i < 16; i++) {
-      const m = new THREE.Mesh(geo, mat);
+    const mats: THREE.MeshBasicMaterial[] = [];
+    const baseOpacity: number[] = [];
+    const addMat = (m: THREE.MeshBasicMaterial, base: number) => {
+      mats.push(m);
+      baseOpacity.push(base);
+      return m;
+    };
+    // 多层同心球壳：从外部看是厚实的烟团，从内部看也会被烟层包围，
+    // 不再靠全屏白雾/白色 HUD 遮挡视线。
+    const shellGeo = new THREE.SphereGeometry(1, 20, 14);
+    for (const [scale, opacity] of [[1, 0.72], [0.965, 0.6], [0.92, 0.52], [0.85, 0.46]] as const) {
+      const mat = addMat(new THREE.MeshBasicMaterial({ color: SMOKE_COLOR, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide, fog: false }), opacity);
+      const shell = new THREE.Mesh(shellGeo, mat);
+      shell.scale.setScalar(scale);
+      group.add(shell);
+    }
+    const blobGeo = new THREE.IcosahedronGeometry(1, 1);
+    const blobMats = [
+      addMat(new THREE.MeshBasicMaterial({ color: 0xc3cbd0, transparent: true, opacity: 0.34, depthWrite: false, side: THREE.DoubleSide, fog: false }), 0.34),
+      addMat(new THREE.MeshBasicMaterial({ color: 0xb2bcc4, transparent: true, opacity: 0.26, depthWrite: false, side: THREE.DoubleSide, fog: false }), 0.26),
+    ];
+    for (let i = 0; i < 58; i++) {
+      const m = new THREE.Mesh(blobGeo, blobMats[i % blobMats.length]);
       const a = Math.random() * Math.PI * 2;
       const u = Math.random() * 2 - 1;
-      const rr = Math.pow(Math.random(), 0.6) * 0.55;
+      const rr = Math.pow(Math.random(), 0.55) * 0.82;
       const sq = Math.sqrt(1 - u * u);
-      m.position.set(Math.cos(a) * sq * rr, u * rr * 0.85, Math.sin(a) * sq * rr);
-      m.scale.setScalar(0.3 + Math.random() * 0.3);
+      m.position.set(Math.cos(a) * sq * rr, u * rr * 0.82, Math.sin(a) * sq * rr);
+      m.scale.setScalar(0.18 + Math.random() * 0.16);
       group.add(m);
     }
     group.position.set(x, y, z);
-    group.scale.setScalar(0.2);
+    group.scale.setScalar(0.05);
     this.scene.add(group);
-    this.smokes.push({ x, y, z, r, life: dur, max: dur, group, mats: [mat] });
+    this.smokes.push({ x, y, z, r, life: dur, max: dur, group, mats, baseOpacity });
   }
 
   private createFireZone(x: number, y: number, z: number, r: number, dur: number, refresh: number) {
@@ -1301,14 +1345,9 @@ export class Game {
     disc.rotation.x = -Math.PI / 2;
     disc.scale.setScalar(r);
     group.add(disc);
-    const m2 = new THREE.MeshBasicMaterial({ color: 0xffb020, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 28), m2);
-    ring.rotation.x = -Math.PI / 2;
-    ring.scale.setScalar(r);
-    group.add(ring);
     group.position.set(x, gy + 0.03, z);
     this.scene.add(group);
-    this.fires.push({ x, y: gy, z, r, life: dur, max: dur, burn: refresh, group, mats: [mat, m2], tick: 0, fxT: 0 });
+    this.fires.push({ x, y: gy, z, r, life: dur, max: dur, burn: refresh, group, mats: [mat], tick: 0, fxT: 0 });
   }
 
   private flashLocal(x: number, y: number, z: number, r: number, secs: number, force: boolean) {
@@ -1430,8 +1469,9 @@ export class Game {
       }
       const grow = Math.min(1, (s.max - s.life) / 0.45);
       s.group.scale.setScalar(Math.max(0.05, s.r * grow));
+      s.group.rotation.y += dt * 0.035;
       const fade = Math.min(1, s.life / 1.2);
-      for (const m of s.mats) m.opacity = 0.17 * fade;
+      for (let k = 0; k < s.mats.length; k++) s.mats[k].opacity = s.baseOpacity[k] * fade;
     }
     for (let i = this.fires.length - 1; i >= 0; i--) {
       const f = this.fires[i];
@@ -1449,7 +1489,6 @@ export class Game {
       const fade = Math.min(1, f.life / 0.8);
       const pulse = 0.36 + Math.sin(this.time * 9 + i) * 0.08;
       f.mats[0].opacity = pulse * fade;
-      f.mats[1].opacity = 0.3 * fade;
       f.fxT -= dt;
       if (f.fxT <= 0) {
         f.fxT = 0.07;
@@ -1549,7 +1588,7 @@ export class Game {
       }
       if (!this.teleportSelf()) return;
       p.tpCd = bp.cd;
-      this.showNotice("传送背包：跃迁 4m");
+      this.showNotice("传送背包：跃迁 20m");
       return;
     }
   }
@@ -1589,9 +1628,9 @@ export class Game {
       return null;
     };
     let spot: [number, number, number] | null = null;
-    const samples = 10;
+    const samples = 20;
     for (let i = 0; i < samples; i++) {
-      const d = TELEPORT_DIST * (1 - i / samples);
+      const d = TELEPORT_DIST * (1 - i / (samples - 1));
       spot = findSpot(b.x + f.x * d, b.y + f.y * d, b.z + f.z * d);
       if (spot) break;
     }
@@ -2087,6 +2126,7 @@ export class Game {
     const bot = new Bot(id, name, team, "dm", DM_WEAPONS[Math.floor(Math.random() * DM_WEAPONS.length)], 1, diff === 1 ? 0.75 : diff === 3 ? 1.2 : 1);
     this.bots.set(id, bot);
     this.ents.set(id, bot.ent);
+    bot.ent.pack = ["supply", "jet", "teleport"][this.botSeq % 3];
     bot.spawn(this.pickSpawn(team));
   }
 
@@ -2225,7 +2265,7 @@ export class Game {
       const l: any[] = [];
       for (const b of this.bots.values()) {
         const e = b.ent;
-        l.push([e.id, r2(e.x), r2(e.y), r2(e.z), r2(e.yaw), r2(e.pitch), e.stance, Math.round(e.hp), e.alive ? 1 : 0, e.wpn, r2(e.speed), e.kind, e.team, e.name]);
+        l.push([e.id, r2(e.x), r2(e.y), r2(e.z), r2(e.yaw), r2(e.pitch), e.stance, Math.round(e.hp), e.alive ? 1 : 0, e.wpn, r2(e.speed), e.kind, e.team, e.name, e.pack]);
       }
       this.net.bots({ t: "bots", l });
     }
@@ -2315,6 +2355,7 @@ export class Game {
       return;
     }
     const w = this.cur();
+    const reloadLock = w.def.id === "hmg" && w.reloadT > 0;
     const fwd = (this.act("forward") ? 1 : 0) - (this.act("back") ? 1 : 0);
     const str = (this.act("right") ? 1 : 0) - (this.act("left") ? 1 : 0);
     const moving = fwd !== 0 || str !== 0;
@@ -2342,14 +2383,21 @@ export class Game {
     // 速度
     let speed = p.stance === 0 ? 5.2 : p.stance === 1 ? 2.8 : 1.4;
     if (p.sprinting) speed = 8.4;
-    if (p.slot < 3) speed *= w.def.moveMul;
+    if (p.slot < 3 || w.def.cat === "heavy") speed *= w.def.moveMul;
     if (p.nadeHold) speed *= 0.92;
     if (p.ads > 0.1) speed *= 1 - 0.4 * p.ads;
     if (p.healT > 0) speed *= 0.75;
     if (p.slowT > 0) speed *= 0.55; // 酸液减速
+    // 重机枪换弹时原地固定，不能位移 / 起跳
+    if (reloadLock) {
+      speed = 0;
+      p.slide = 0;
+      b.vx = 0;
+      b.vz = 0;
+    }
 
     // 跳跃
-    if (this.act("jump") && b.onGround) {
+    if (this.act("jump") && b.onGround && !reloadLock) {
       if (p.stance !== 0) {
         this.setStance(0);
       }
@@ -2481,22 +2529,6 @@ export class Game {
     if (!r) return;
     const p = this.p;
     const b = p.body;
-    // 烟雾中的能见度：收窄雾距并把背景换成烟色
-    if (this.map) {
-      const fog = this.scene.fog as THREE.Fog;
-      const bg = this.scene.background as THREE.Color;
-      if (this.smokeVision) {
-        fog.color.setHex(SMOKE_COLOR);
-        fog.near = SMOKE_FOG_NEAR;
-        fog.far = SMOKE_FOG_FAR;
-        bg?.setHex(SMOKE_COLOR);
-      } else {
-        fog.color.setHex(this.map.fog);
-        fog.near = 50;
-        fog.far = 190;
-        bg?.setHex(this.map.sky);
-      }
-    }
     const d = this.cur()?.def;
     const zoom = d ? 1 + (d.zoom - 1) * p.ads : 1;
     const sprintFov = p.sprinting ? 5 : 0;

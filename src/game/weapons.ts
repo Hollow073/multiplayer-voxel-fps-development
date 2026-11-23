@@ -111,9 +111,9 @@ export const WEAPONS: WeaponDef[] = [
   mk({ id: "aa12", name: "AA-12 全自动霰弹枪", en: "AA-12", slot: 1, cat: "shotgun", damage: 7, pellets: 8, rpm: 300, auto: true, mag: 20, mags: 4, reload: 3.6, spread: 4.2, adsSpread: 3.0, recoilV: 2.2, recoilH: 1, range: 9, maxRange: 30, minMul: 0.2, moveMul: 0.93, zoom: 1.15, color: 0x3a3f2a, accent: 0x202020, len: 0.8, desc: "全自动霰弹枪，泼水般的火力。" }),
 
   // ───────── 轻机枪 (中远距离 / 大弹容 / 换弹慢 / 高伤害) ─────────
-  mk({ id: "m249", name: "M249 SAW", en: "M249", slot: 1, cat: "lmg", damage: 35, rpm: 720, mag: 75, mags: 2, reload: 5.5, spread: 3, adsSpread: 0.9, recoilV: 0.8, recoilH: 0.5, range: 50, maxRange: 140, minMul: 0.7, moveMul: 0.82, zoom: 1.3, color: 0x30343a, accent: 0x4d5a3a, len: 1.0, desc: "75发弹链、150发备弹，持续压制火力。" }),
-  mk({ id: "rpk", name: "RPK 轻机枪", en: "RPK", slot: 1, cat: "lmg", damage: 38, rpm: 600, mag: 60, mags: 2, reload: 5.0, spread: 3, adsSpread: 0.7, recoilV: 1.1, recoilH: 0.5, range: 52, maxRange: 150, minMul: 0.7, moveMul: 0.85, zoom: 1.35, color: 0x4a3322, accent: 0x222222, len: 0.98, desc: "伤害较高，精度不错的轻机枪。" }),
-  mk({ id: "pkm", name: "PKM 通用机枪", en: "PKM", slot: 1, cat: "lmg", damage: 42, rpm: 640, mag: 80, mags: 2, reload: 6.2, spread: 3.4, adsSpread: 1.0, recoilV: 1.3, recoilH: 0.7, range: 55, maxRange: 160, minMul: 0.7, moveMul: 0.78, zoom: 1.3, color: 0x2b3a2b, accent: 0x15191c, len: 1.05, desc: "高伤害轻机枪，机动性最差。" }),
+  mk({ id: "m249", name: "M249 SAW", en: "M249", slot: 1, cat: "lmg", damage: 35, rpm: 720, mag: 75, mags: 2, reload: 5.5, spread: 3, adsSpread: 0.9, recoilV: 0.8, recoilH: 0.5, range: 50, maxRange: 140, minMul: 0.7, moveMul: 0.95, zoom: 1.3, color: 0x30343a, accent: 0x4d5a3a, len: 1.0, desc: "75发弹链、150发备弹，持续压制火力。" }),
+  mk({ id: "rpk", name: "RPK 轻机枪", en: "RPK", slot: 1, cat: "lmg", damage: 38, rpm: 600, mag: 60, mags: 2, reload: 5.0, spread: 3, adsSpread: 0.7, recoilV: 1.1, recoilH: 0.5, range: 52, maxRange: 150, minMul: 0.7, moveMul: 0.95, zoom: 1.35, color: 0x4a3322, accent: 0x222222, len: 0.98, desc: "伤害较高，精度不错的轻机枪。" }),
+  mk({ id: "pkm", name: "PKM 通用机枪", en: "PKM", slot: 1, cat: "lmg", damage: 42, rpm: 640, mag: 80, mags: 2, reload: 6.2, spread: 3.4, adsSpread: 1.0, recoilV: 1.3, recoilH: 0.7, range: 55, maxRange: 160, minMul: 0.7, moveMul: 0.95, zoom: 1.3, color: 0x2b3a2b, accent: 0x15191c, len: 1.05, desc: "高伤害轻机枪，机动性最差。" }),
 
   // ───────── 二号位：手枪 ─────────
   mk({ id: "m1911", name: "M1911 手枪", en: "M1911", slot: 2, cat: "pistol", damage: 34, rpm: 330, auto: false, mag: 8, mags: 6, reload: 1.5, spread: 2.2, adsSpread: 0.4, recoilV: 1.4, recoilH: 0.3, range: 25, maxRange: 80, minMul: 0.55, moveMul: 1.06, zoom: 1.15, color: 0x555a63, accent: 0x2c2c2c, len: 0.35, desc: "经典.45口径，单发伤害高。" }),
@@ -126,8 +126,8 @@ export const WEAPONS: WeaponDef[] = [
   mk({ id: "machete", name: "砍刀", en: "Machete", slot: 2, cat: "melee", type: "melee", damage: 65, rpm: 100, auto: true, mag: 0, mags: 0, reload: 0, range: 2.5, maxRange: 2.5, minMul: 1, moveMul: 1.08, color: 0xb0b6bd, accent: 0x2d2d2d, len: 0.55, desc: "速度与威力兼顾的丛林砍刀。" }),
 
   // ───────── 三号位：重武器 ─────────
-  mk({ id: "rpg", name: "RPG-7 火箭筒", en: "RPG-7", slot: 3, cat: "heavy", type: "rocket", damage: 170, rpm: 40, auto: false, mag: 1, mags: 3, reload: 3.4, spread: 0.8, adsSpread: 0.1, recoilV: 4, recoilH: 0.5, range: 400, maxRange: 400, minMul: 1, moveMul: 1, zoom: 1.5, radius: 7, speed: 42, color: 0x4d5a3a, accent: 0x3a3a3a, len: 1.1, desc: "火箭弹，大范围爆炸伤害。占用背包位作为火箭弹库存，无移速惩罚。" }),
-  mk({ id: "hmg", name: "M2 重机枪", en: "M2HB", slot: 3, cat: "heavy", type: "gun", damage: 48, rpm: 960, auto: true, mag: 150, mags: 2, reload: 7.5, spread: 3.6, adsSpread: 1.8, recoilV: 0.9, recoilH: 0.6, range: 70, maxRange: 180, minMul: 0.7, moveMul: 1, zoom: 1.25, color: 0x2e3a2e, accent: 0x15181a, len: 1.15, desc: "弹匣 150 发、备弹 300 发的链式重机枪，射速极高。占用背包位作为弹链库存，无移速惩罚。" }),
+  mk({ id: "rpg", name: "RPG-7 火箭筒", en: "RPG-7", slot: 3, cat: "heavy", type: "rocket", damage: 170, rpm: 40, auto: false, mag: 1, mags: 3, reload: 3.4, spread: 0.8, adsSpread: 0.1, recoilV: 4, recoilH: 0.5, range: 400, maxRange: 400, minMul: 1, moveMul: 0.85, zoom: 1.5, radius: 7, speed: 42, color: 0x4d5a3a, accent: 0x3a3a3a, len: 1.1, desc: "火箭弹，大范围爆炸伤害。占用背包位作为火箭弹库存，持握移速 85%。" }),
+  mk({ id: "hmg", name: "M2 重机枪", en: "M2HB", slot: 3, cat: "heavy", type: "gun", damage: 48, rpm: 960, auto: true, mag: 150, mags: 2, reload: 8, spread: 3.6, adsSpread: 1.8, recoilV: 0.9, recoilH: 0.6, range: 70, maxRange: 180, minMul: 0.7, moveMul: 0.85, zoom: 1.25, color: 0x2e3a2e, accent: 0x15181a, len: 1.15, desc: "弹匣 150 发、备弹 300 发的链式重机枪，射速极高；换弹 8s 且期间无法移动。占用背包位，持握移速 85%。" }),
   mk({ id: "gl", name: "M32 榴弹发射器", en: "M32 MGL", slot: 3, cat: "heavy", type: "grenade", damage: 115, rpm: 110, auto: false, mag: 10, mags: 3, reload: 4.5, spread: 1.2, adsSpread: 0.3, recoilV: 3, recoilH: 0.4, range: 300, maxRange: 300, minMul: 1, moveMul: 1, zoom: 1.35, radius: 5, speed: 30, color: 0x3d4a35, accent: 0x222222, len: 0.8, desc: "3个备用弹链，每链10发榴弹。不占用背包位。" }),
 ];
 
@@ -151,7 +151,7 @@ export const CATEGORIES: CatInfo[] = [
   { id: "special", name: "特殊武器", slot: 1, locked: true, desc: "预留位置 · 敬请期待" },
   { id: "pistol", name: "远程武器 (手枪)", slot: 2, desc: "半自动 · 切枪迅速" },
   { id: "melee", name: "近战武器", slot: 2, desc: "无需弹药 · 近距离致命" },
-  { id: "heavy", name: "重武器", slot: 3, desc: "RPG / 重机枪（占用背包位，无移速惩罚）· 榴弹发射器（不占用背包位）" },
+  { id: "heavy", name: "重武器", slot: 3, desc: "RPG / 重机枪（占用背包位，持握移速 85%，重机枪换弹时无法移动）· 榴弹发射器（不占用背包位）" },
 ];
 
 export function weaponsOfCat(cat: Cat): WeaponDef[] {
