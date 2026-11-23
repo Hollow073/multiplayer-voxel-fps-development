@@ -18,6 +18,8 @@ export function newBody(x = 0, y = 0, z = 0): Body {
 
 export const GRAVITY = 24;
 export const STEP_H = 0.55;
+export const EPS = 1e-5;
+export const STAND_EPS = 1e-5;
 
 const DIRS: [number, number][] = [
   [1, 0], [-1, 0], [0, 1], [0, -1],
@@ -103,8 +105,8 @@ export class World {
     const B = this.b;
     for (let k = 0; k < this.tmp2.length; k++) {
       const i = this.tmp2[k] * 6;
-      if (x + hw <= B[i] || x - hw >= B[i + 3] || z + hw <= B[i + 2] || z - hw >= B[i + 5]) continue;
-      if (y + h <= B[i + 1] || y >= B[i + 4]) continue;
+      if (x + hw <= B[i] + EPS || x - hw >= B[i + 3] - EPS || z + hw <= B[i + 2] + EPS || z - hw >= B[i + 5] - EPS) continue;
+      if (y + h <= B[i + 1] + EPS || y >= B[i + 4] - STAND_EPS) continue;
       return false;
     }
     return true;
@@ -141,75 +143,76 @@ export class World {
     const px = b.x;
     const py = b.y;
     const pz = b.z;
-    b.x += dx;
-    b.z += dz;
     const hw = b.hw;
     const B = this.b;
-    let blockedX = false;
-    let blockedZ = false;
-    // 多次迭代：一次推动可能把身体挤进另一面墙（墙角常见），
-    // 迭代求解直到不再相交，最后仍相交则整体回退。
-    for (let pass = 0; pass < 3; pass++) {
+    b.x += dx;
+    b.z += dz;
+    let blocked = false;
+    // 分轴移动 + 回退：绝不允许“沿移动方向把身体推到方块另一侧”，
+    // 否则在楼梯/矮墙/墙角里一旦与方块重叠就会被弹飞。
+    // 允许先连续跨上矮台阶，再重新检测是否还有真正阻挡。
+    for (let pass = 0; pass < 4 && !blocked; pass++) {
       this.query(b.x - hw, b.z - hw, b.x + hw, b.z + hw, this.tmp);
       let hit = false;
+      let stepTop = -1;
       for (let k = 0; k < this.tmp.length; k++) {
         const i = this.tmp[k] * 6;
         const x0 = B[i], y0 = B[i + 1], z0 = B[i + 2], x1 = B[i + 3], y1 = B[i + 4], z1 = B[i + 5];
         if (b.x + hw <= x0 + 1e-5 || b.x - hw >= x1 - 1e-5 || b.z + hw <= z0 + 1e-5 || b.z - hw >= z1 - 1e-5) continue;
-        if (b.y + b.h <= y0 || b.y >= y1) continue;
+        // 脚底已经与顶面齐平（含浮点容差）时视为站在方块上，不算碰撞
+        if (b.y >= y1 - 0.002) continue;
+        if (b.y + b.h <= y0 + 1e-5) continue;
         const rise = y1 - b.y;
-        if (canStep && rise > 0 && rise <= STEP_H && this.fits(b.x, y1 + 0.001, b.z, hw, b.h)) {
-          b.y = y1;
+        if (canStep && rise <= STEP_H && this.fits(b.x, y1 + 0.002, b.z, hw, b.h)) {
+          if (y1 > stepTop) stepTop = y1;
           continue;
         }
         hit = true;
-        if (dx > 0) {
-          b.x = Math.min(b.x, x0 - hw - 0.001);
-          blockedX = true;
-        } else if (dx < 0) {
-          b.x = Math.max(b.x, x1 + hw + 0.001);
-          blockedX = true;
-        }
-        if (dz > 0) {
-          b.z = Math.min(b.z, z0 - hw - 0.001);
-          blockedZ = true;
-        } else if (dz < 0) {
-          b.z = Math.max(b.z, z1 + hw + 0.001);
-          blockedZ = true;
-        }
       }
-      if (!hit) break;
+      if (stepTop > b.y) {
+        b.y = stepTop;
+        continue;
+      }
+      if (hit) blocked = true;
+      else break;
     }
-    if (!this.fits(b.x, b.y, b.z, hw, b.h)) {
+    if (blocked || !this.fits(b.x, b.y, b.z, hw, b.h)) {
       b.x = px;
       b.y = py;
       b.z = pz;
-      blockedX = dx !== 0;
-      blockedZ = dz !== 0;
+      if (dx !== 0) b.vx = 0;
+      if (dz !== 0) b.vz = 0;
     }
-    if (blockedX) b.vx = 0;
-    if (blockedZ) b.vz = 0;
   }
 
   private moveV(b: Body, dy: number) {
     b.y += dy;
     b.onGround = false;
-    const hw = b.hw - 0.01;
+    const hw = b.hw;
     this.query(b.x - hw, b.z - hw, b.x + hw, b.z + hw, this.tmp);
     const B = this.b;
+    let landY = -Infinity;
+    let ceilY = Infinity;
     for (let k = 0; k < this.tmp.length; k++) {
       const i = this.tmp[k] * 6;
       const x0 = B[i], y0 = B[i + 1], z0 = B[i + 2], x1 = B[i + 3], y1 = B[i + 4], z1 = B[i + 5];
-      if (b.x + hw <= x0 || b.x - hw >= x1 || b.z + hw <= z0 || b.z - hw >= z1) continue;
+      if (b.x + hw <= x0 - 1e-4 || b.x - hw >= x1 + 1e-4 || b.z + hw <= z0 - 1e-4 || b.z - hw >= z1 + 1e-4) continue;
       if (b.y + b.h <= y0 || b.y >= y1) continue;
       if (dy <= 0 && b.y - dy >= y1 - 0.02) {
-        b.y = y1;
-        if (b.vy < 0) b.vy = 0;
-        b.onGround = true;
+        // 取最高的落脚面，避免同时压到多块时落到较低的一块
+        if (y1 > landY) landY = y1;
       } else if (dy > 0 && b.y + b.h - dy <= y0 + 0.02) {
-        b.y = y0 - b.h;
-        if (b.vy > 0) b.vy = 0;
+        // 取最低的天花板，避免同时顶到多块时被塞进较高的方块
+        if (y0 < ceilY) ceilY = y0;
       }
+    }
+    if (landY > -Infinity) {
+      b.y = landY;
+      if (b.vy < 0) b.vy = 0;
+      b.onGround = true;
+    } else if (ceilY < Infinity) {
+      b.y = ceilY - b.h;
+      if (b.vy > 0) b.vy = 0;
     }
   }
 

@@ -201,8 +201,13 @@ export interface AvatarKind {
 export interface Avatar {
   group: THREE.Group;
   model: THREE.Group;
-  legL: THREE.Group;
-  legR: THREE.Group;
+  // 双腿拆成大腿 / 小腿 / 脚掌，蹲下时用屈膝代替整体压扁
+  thighL: THREE.Group;
+  thighR: THREE.Group;
+  shinL: THREE.Group;
+  shinR: THREE.Group;
+  footL: THREE.Group;
+  footR: THREE.Group;
   upperL: THREE.Group;
   upperR: THREE.Group;
   foreL: THREE.Group;
@@ -211,6 +216,8 @@ export interface Avatar {
   weaponId: string;
   tag: THREE.Sprite | null;
   hpBar: THREE.Mesh | null;
+  crouchK: number;
+  proneK: number;
 }
 
 const UPPER = 0.43;
@@ -250,12 +257,21 @@ export function makeAvatar(k: AvatarKind): Avatar {
   const group = new THREE.Group();
   const model = new THREE.Group();
   group.add(model);
+  // 每条腿：髋关节 → 大腿 → 膝关节 → 小腿 → 踝关节 → 脚掌
   const mkLeg = (x: number) => {
-    const p = new THREE.Group();
-    p.position.set(x, 0.75, 0);
-    bx(0.27, 0.75, 0.28, 0, -0.375, 0, k.legs, p);
-    model.add(p);
-    return p;
+    const thigh = new THREE.Group();
+    thigh.position.set(x, 0.75, 0);
+    bx(0.27, 0.375, 0.28, 0, -0.1875, 0, k.legs, thigh);
+    const shin = new THREE.Group();
+    shin.position.set(0, -0.375, 0);
+    bx(0.27, 0.255, 0.28, 0, -0.1275, 0, k.legs, shin);
+    const foot = new THREE.Group();
+    foot.position.set(0, -0.255, 0);
+    bx(0.27, 0.12, 0.4, 0, -0.06, -0.06, k.legs, foot);
+    shin.add(foot);
+    thigh.add(shin);
+    model.add(thigh);
+    return { thigh, shin, foot };
   };
   const legL = mkLeg(-0.155);
   const legR = mkLeg(0.155);
@@ -288,7 +304,26 @@ export function makeAvatar(k: AvatarKind): Avatar {
   weapon.position.copy(HAND_R);
   model.add(weapon);
   group.scale.setScalar(k.scale);
-  const a: Avatar = { group, model, legL, legR, upperL, upperR, foreL, foreR, weapon, weaponId: "", tag: null, hpBar: null };
+  const a: Avatar = {
+    group,
+    model,
+    thighL: legL.thigh,
+    shinL: legL.shin,
+    footL: legL.foot,
+    thighR: legR.thigh,
+    shinR: legR.shin,
+    footR: legR.foot,
+    upperL,
+    upperR,
+    foreL,
+    foreR,
+    weapon,
+    weaponId: "",
+    tag: null,
+    hpBar: null,
+    crouchK: 0,
+    proneK: 0,
+  };
   poseArms(a, false, 0);
   return a;
 }
@@ -304,13 +339,16 @@ export function setAvatarWeapon(a: Avatar, def: WeaponDef) {
 }
 
 // 双手持枪姿势：右手握把、左手托护木；近战只用右手
-function poseArms(a: Avatar, melee: boolean, bob: number) {
+// prone = 0 站立/蹲下，1 趴下：手臂向前伸、枪身放平
+function poseArms(a: Avatar, melee: boolean, bob: number, prone = 0) {
+  const bobR = new THREE.Vector3(0, bob * 0.4, bob * 0.15);
+  const bobL = new THREE.Vector3(0, bob * 0.4, bob * 0.2);
   if (melee) {
-    a.weapon.position.set(0.3, 1.1, -0.3);
-    a.weapon.rotation.set(0.35, 0, 0);
+    const handR = new THREE.Vector3(0.3, 1.1, -0.3).add(bobR).lerp(new THREE.Vector3(0.24, 1.78, -0.06), prone);
+    const handL = new THREE.Vector3(-0.4, 0.98, 0.02).add(bobL).lerp(new THREE.Vector3(-0.12, 2.0, -0.06), prone);
+    a.weapon.position.copy(handR);
+    a.weapon.rotation.set(0.35 * (1 - prone) + (Math.PI / 2) * prone, 0, 0);
     // 近战：右手持武器，左手自然下垂
-    const handR = new THREE.Vector3(0.3, 1.1, -0.3).add(new THREE.Vector3(0, bob * 0.4, bob * 0.15));
-    const handL = new THREE.Vector3(-0.4, 0.98, 0.02).add(new THREE.Vector3(0, bob * 0.4, bob * 0.2));
     aimSegment(a.upperR, SHOULDER_R, handR);
     const er = solveElbow(SHOULDER_R, handR, new THREE.Vector3(0.8, -0.5, 0));
     aimSegment(a.foreR, er, handR);
@@ -321,10 +359,10 @@ function poseArms(a: Avatar, melee: boolean, bob: number) {
   }
   // 正确的持枪手部位置：右手在握把位置，左手在护木/前部位置
   // 枪模型原点在握把附近，朝向 -Z
-  const handR = new THREE.Vector3(0.08, 1.06, -0.35).add(new THREE.Vector3(0, bob * 0.4, bob * 0.15));
-  const handL = new THREE.Vector3(-0.15, 1.02, -0.65).add(new THREE.Vector3(0, bob * 0.4, bob * 0.2));
+  const handR = new THREE.Vector3(0.08, 1.06, -0.35).add(bobR).lerp(new THREE.Vector3(0.22, 1.82, -0.06), prone);
+  const handL = new THREE.Vector3(-0.15, 1.02, -0.65).add(bobL).lerp(new THREE.Vector3(-0.05, 2.08, -0.06), prone);
   a.weapon.position.copy(handR);
-  a.weapon.rotation.set(0, 0, 0);
+  a.weapon.rotation.set((Math.PI / 2) * prone, 0, 0);
   // 右臂：上臂指向肘部，前臂指向手（握把）
   const er = solveElbow(SHOULDER_R, handR, new THREE.Vector3(0.6, -0.5, 0));
   aimSegment(a.upperR, SHOULDER_R, er);
@@ -336,23 +374,35 @@ function poseArms(a: Avatar, melee: boolean, bob: number) {
 }
 
 export function animateAvatar(a: Avatar, phase: number, speed: number, stance: number, dt: number, lerpK = 1, melee = false) {
-  const amp = Math.min(1, speed / 4) * 0.9;
+  const k = Math.min(1, dt * 12 * lerpK);
+  // 蹲下 / 趴下分别做平滑过渡，避免姿势瞬间跳变
+  a.crouchK = THREE.MathUtils.lerp(a.crouchK, stance === 1 ? 1 : 0, k);
+  a.proneK = THREE.MathUtils.lerp(a.proneK, stance === 2 ? 1 : 0, k);
+  const pk = a.proneK;
+  const ck = a.crouchK * (1 - pk);
+
+  const amp = Math.min(1, speed / 4) * 0.75;
   const s = Math.sin(phase) * amp;
-  a.legL.rotation.x = s;
-  a.legR.rotation.x = -s;
+  const swing = s * (1 - pk) * (1 - 0.35 * ck);
+
+  // 蹲下：屈膝下蹲（大腿前摆、小腿回折），身体整体下沉，脚掌保持水平贴地
+  const squat = 0.95 * ck;
+  a.thighL.rotation.x = squat + swing;
+  a.thighR.rotation.x = squat - swing;
+  a.shinL.rotation.x = -2 * squat - Math.max(0, -swing) * 0.9;
+  a.shinR.rotation.x = -2 * squat - Math.max(0, swing) * 0.9;
+  // 脚掌反向旋转，抵消大腿+小腿的角度，始终平放在地面上
+  a.footL.rotation.x = -(a.thighL.rotation.x + a.shinL.rotation.x);
+  a.footR.rotation.x = -(a.thighR.rotation.x + a.shinR.rotation.x);
+
+  // 趴下：绕身体中部放平，抬高到地面之上，并前后居中
   const m = a.model;
-  if (stance === 2) {
-    m.rotation.x = THREE.MathUtils.lerp(m.rotation.x, -Math.PI / 2, Math.min(1, dt * 12 * lerpK));
-    m.position.set(0, 0.04, 0.9);
-    m.scale.y = 1;
-  } else {
-    m.rotation.x = THREE.MathUtils.lerp(m.rotation.x, 0, Math.min(1, dt * 12 * lerpK));
-    m.position.set(0, 0, 0);
-    m.scale.y = THREE.MathUtils.lerp(m.scale.y, stance === 0 ? 1 : 0.72, Math.min(1, dt * 12 * lerpK));
-  }
+  m.rotation.x = (-Math.PI / 2) * pk;
+  m.position.set(0, 0.24 * pk - 0.264 * ck, 0.9 * pk);
+
   // 持枪时手臂随步伐轻微起伏
   const bob = Math.sin(phase * 2) * 0.012 * amp;
-  poseArms(a, melee, bob);
+  poseArms(a, melee, bob, pk);
 }
 
 const tagCache = new Map<string, THREE.SpriteMaterial>();

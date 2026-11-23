@@ -224,7 +224,11 @@ export default function GameView({ cfg, onExit, onLoadoutChange }: { cfg: GameCo
                 <div className="h-full bg-green-400" style={{ width: `${h.healProg * 100}%` }} />
               </div>
             )}
-            {h.protect && <div className="mt-1 text-[10px] text-cyan-300">复活保护中…</div>}
+            {h.protect && (
+              <div className="mt-1 text-[10px] text-cyan-300 font-bold">
+                无敌保护 {Math.max(0, h.protectT).toFixed(1)}s
+              </div>
+            )}
           </div>
 
           {/* 右下：武器/弹药 */}

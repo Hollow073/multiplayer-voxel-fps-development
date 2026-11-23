@@ -119,5 +119,6 @@ export interface HudState {
   deaths: number;
   headshots: number;
   protect: boolean;
+  protectT: number;
   isHost: boolean;
 }

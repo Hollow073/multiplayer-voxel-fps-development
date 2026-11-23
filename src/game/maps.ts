@@ -217,13 +217,18 @@ function house(b: B, o: HouseOpts) {
   const steps = w >= 10 ? 8 : 7;
   const rise = FH / steps;
   // 每层楼板 / 屋顶都在楼梯上方开洞
+  // 洞口比楼梯本身宽 0.35m：玩家身体半宽 0.3m，贴边走在楼梯上时
+  // 头部不会擦到楼板边缘（旧洞口与楼梯同宽，导致上楼梯时被楼板卡住/抖动）
+  const HOLE_M = 0.35;
   for (let f = 1; f <= floors; f++) {
     const y1 = f * FH;
     const i = f - 1;
     const dir = i % 2 === 0 ? 1 : -1;
     const row = i % 2;
     const oz0 = sz + row * 2;
-    const hole = dir === 1 ? [xs + steps - 6, oz0, xs + steps, oz0 + 2] : [xs, oz0, xs + 6, oz0 + 2];
+    const hole = dir === 1
+      ? [xs + steps - 6, oz0 - HOLE_M, xs + steps, oz0 + 2 + HOLE_M]
+      : [xs, oz0 - HOLE_M, xs + 6, oz0 + 2 + HOLE_M];
     slab(b, x, z, x1, z1, y1 - SL, y1, hole, f === floors ? o.roof : th.floor);
   }
   // 屋顶矮檐

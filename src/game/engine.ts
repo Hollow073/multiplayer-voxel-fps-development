@@ -49,6 +49,8 @@ const DM_WEAPONS = ["m4a1", "ak47", "mp5", "famas", "scarh", "vector", "p90"];
 const ENEMY_TEAM = 5;
 const HEIGHTS = [1.8, 1.3, 0.55];
 const EYES = [1.65, 1.15, 0.5];
+// 重生后的无敌时间（秒）
+const PROTECT_TIME = 4;
 
 export class Game {
   hud: HudState;
@@ -197,7 +199,7 @@ export class Game {
       slot: 0, weapons: [], reloadProg: 0, heal: RULES.healUses, healing: false, healProg: 0, alive: false, respawnIn: 0, waiting: false,
       hitSeq: 0, hitHead: false, killSeq: 0, dmgFlash: 0, dmgAngle: 0, ads: false, scope: false, spread: 2, feed: [], mode: "tdm", mapName: "",
       teamCount: 2, scores: [0, 0, 0, 0], scoreLimit: 30, myTeam: 0, wave: 0, enemiesLeft: 0, banner: "", bannerT: 0, phase: "play",
-      board: [], showBoard: false, roomId: cfg.roomId, players: 1, fps: 0, kills: 0, deaths: 0, headshots: 0, protect: false, isHost: false,
+      board: [], showBoard: false, roomId: cfg.roomId, players: 1, fps: 0, kills: 0, deaths: 0, headshots: 0, protect: false, protectT: 0, isHost: false,
     };
   }
 
@@ -684,7 +686,7 @@ export class Game {
     p.alive = true;
     p.waiting = false;
     p.respawnT = 0;
-    p.protect = 2.5;
+    p.protect = PROTECT_TIME;
     p.ads = 0;
     p.eye = EYES[0];
     this.selfEnt.team = this.team;
@@ -927,6 +929,14 @@ export class Game {
     const eye = this.eyePos();
     const { f, r, u } = this.camBasis();
     const muzzle = eye.clone().addScaledVector(f, 0.75).addScaledVector(r, 0.2).addScaledVector(u, -0.14);
+    // 贴墙开火时枪口可能穿进墙里或穿到墙后，沿视线把它夹回墙前
+    const md = muzzle.clone().sub(eye);
+    const ml = md.length();
+    if (ml > 0.01) {
+      md.divideScalar(ml);
+      const wh = this.world.raycast(eye.x, eye.y, eye.z, md.x, md.y, md.z, ml);
+      if (wh < ml) muzzle.copy(eye).addScaledVector(md, Math.max(0.08, wh - 0.12));
+    }
     let sp = this.currentSpread();
     if (d.pellets === 1) sp += p.bloom * (1 - p.ads * 0.7);
     // 后坐力（视角上跳 + 少量随机水平偏移；视觉 kick 单独限幅，避免累积成抖动）
@@ -1054,6 +1064,9 @@ export class Game {
 
   // ───────────────────────── 投射物 ─────────────────────────
   private spawnProj(id: string, mine: boolean, kind: string, def: WeaponDef, pos: THREE.Vector3, vel: THREE.Vector3, grav: number, wIdx: number) {
+    // 贴墙开火时枪口可能已经在方块内部，先把出生点沿弹道反向推出来
+    const [sx, sy, sz] = this.nudgeOut(pos.x, pos.y, pos.z, -vel.x, -vel.y, -vel.z, 3);
+    pos.set(sx, sy, sz);
     const g = new THREE.Group();
     if (kind === "rocket") {
       bx(0.1, 0.1, 0.55, 0, 0, 0, 0x5a6b45, g);
@@ -1092,9 +1105,13 @@ export class Game {
       }
       if (bt < len || pr.life <= 0) {
         const t = Math.min(bt, len);
-        const x = pr.pos.x + dir.x * t - dir.x * 0.15;
-        const y = pr.pos.y + dir.y * t - dir.y * 0.15;
-        const z = pr.pos.z + dir.z * t - dir.z * 0.15;
+        // 命中点再沿弹道回退一点，并保证爆炸中心不在方块内部
+        const [x, y, z] = this.nudgeOut(
+          pr.pos.x + dir.x * t - dir.x * 0.15,
+          pr.pos.y + dir.y * t - dir.y * 0.15,
+          pr.pos.z + dir.z * t - dir.z * 0.15,
+          -dir.x, -dir.y, -dir.z, 3,
+        );
         void hitEnt;
         this.explodeProj(pr, x, y, z);
         this.removeProj(i);
@@ -1107,6 +1124,23 @@ export class Game {
     }
   }
 
+  // 把一个点沿给定方向推出实体方块，保证出生点/爆炸中心不在墙里
+  private nudgeOut(x: number, y: number, z: number, dx: number, dy: number, dz: number, maxDist = 3): [number, number, number] {
+    if (this.world.fits(x, y, z, 0.02, 0.02)) return [x, y, z];
+    const l = Math.hypot(dx, dy, dz) || 1;
+    const ux = dx / l, uy = dy / l, uz = dz / l;
+    const step = 0.06;
+    for (let d = step; d <= maxDist; d += step) {
+      const nx = x + ux * d, ny = y + uy * d, nz = z + uz * d;
+      if (this.world.fits(nx, ny, nz, 0.02, 0.02)) return [nx, ny, nz];
+    }
+    // 指定方向仍被挡住时，向上抬出方块（例如嵌进地面）
+    for (let d = step; d <= maxDist; d += step) {
+      if (this.world.fits(x, y + d, z, 0.02, 0.02)) return [x, y + d, z];
+    }
+    return [x, y, z];
+  }
+
   private explodeVisual(x: number, y: number, z: number, r: number) {
     this.fx.explosion(x, y, z, r);
     this.playPos("boom", x, z, 1);
@@ -1117,17 +1151,48 @@ export class Game {
 
   private explodeProj(pr: Proj, x: number, y: number, z: number) {
     const R = pr.def.radius || 5;
-    this.explodeVisual(x, y, z, R);
+    // 爆炸中心必须在空位，否则贴墙爆炸会被墙体自遮挡，出现“视觉命中却不掉血”
+    const [bx, by, bz] = this.nudgeOut(x, y, z, 0, 1, 0, 3);
+    this.explodeVisual(bx, by, bz, R);
     if (!pr.mine) return;
     const base = pr.def.damage;
-    const check = (cx: number, cy: number, cz: number) => {
-      const d = Math.hypot(cx - x, cy - y, cz - z);
+    // 圆形（球形）范围：按目标身体离爆心最近的点计算距离，而不是只采样胸口/脚底
+    const check = (ex: number, ey: number, ez: number, hw: number, height: number) => {
+      const cx = clamp(bx, ex - hw, ex + hw);
+      const cz = clamp(bz, ez - hw, ez + hw);
+      const cy = clamp(by, ey, ey + height);
+      const d = Math.hypot(cx - bx, cy - by, cz - bz);
       if (d >= R) return -1;
-      if (!this.world.hasLOS(x, y, z, cx, cy, cz)) return -1;
+      // 从爆心朝目标方向偏移一点再检查遮挡，避免爆炸点擦着墙面时被误判为被墙挡住
+      const tx = ex - bx, tz = ez - bz;
+      const tl = Math.hypot(tx, tz) || 1;
+      let ox = bx + (tx / tl) * 0.3;
+      let oz = bz + (tz / tl) * 0.3;
+      if (!this.world.fits(ox, by, oz, 0.02, 0.02)) { ox = bx; oz = bz; }
+      // 爆心贴在障碍物/地面顶部时，射线起点正好在方块表面上，会被自身当成 t=0 的遮挡。
+      // 抬高起点再检测；爆心明显高于目标脚部时（炸在障碍物顶部/半空），再从更高处补一次，
+      // 避免射线擦着矮墙顶边被误判。地面爆炸仍保持正常的墙体遮挡。
+      const baseOy = Math.max(by, ey + 0.25) + 0.12;
+      const origins = [baseOy];
+      // 仅当爆心确实贴在某个方块顶部（如榴弹落在矮墙/箱子上）时，才补一次高位视线检测
+      const onSurface = !this.world.fits(bx, by - 0.35, bz, 0.02, 0.02);
+      if (onSurface && by - ey >= 0.35) origins.push(by + 0.9);
+      const hi = ey + height * 0.6;
+      const lo = ey + height * 0.25;
+      let clear = false;
+      for (const oy of origins) {
+        if (!this.world.fits(ox, oy, oz, 0.02, 0.02)) continue;
+        if (this.world.hasLOS(ox, oy, oz, ex, hi, ez) || this.world.hasLOS(ox, oy, oz, ex, lo, ez)) {
+          clear = true;
+          break;
+        }
+      }
+      if (!clear) return -1;
       return base * Math.max(0.12, 1 - d / R);
     };
     for (const e of this.hostiles(this.team, false)) {
-      const dmg = Math.max(check(e.x, e.y + 0.9 * e.scale, e.z), check(e.x, e.y + 0.3, e.z));
+      const s = e.scale || 1;
+      const dmg = check(e.x, e.y, e.z, 0.34 * s, 1.8 * s);
       if (dmg > 0) {
         this.applyHit(e, dmg, false, pr.wIdx);
         this.hitSeq++;
@@ -1137,10 +1202,10 @@ export class Game {
     }
     const b = this.p.body;
     if (this.p.alive) {
-      const dmg = Math.max(check(b.x, b.y + 0.9, b.z), check(b.x, b.y + 0.2, b.z));
-      if (dmg > 0) this.damageSelf(dmg * 0.5, false, this.cfg.pid, pr.wIdx, x, z);
+      const dmg = check(b.x, b.y, b.z, b.hw, b.h);
+      if (dmg > 0) this.damageSelf(dmg * 0.5, false, this.cfg.pid, pr.wIdx, bx, bz);
     }
-    this.evAll({ k: "boom", id: pr.id, p: [r2(x), r2(y), r2(z)], r: R });
+    this.evAll({ k: "boom", id: pr.id, p: [r2(bx), r2(by), r2(bz)], r: R });
   }
 
   // ───────────────────────── 伤害 / 死亡 ─────────────────────────
@@ -1836,6 +1901,7 @@ export class Game {
     h.deaths = p.deaths;
     h.headshots = p.hs;
     h.protect = p.protect > 0;
+    h.protectT = Math.max(0, p.protect);
     h.isHost = this.isHost;
     h.board = this.showBoard ? this.buildBoard() : [];
     return { ...h };
